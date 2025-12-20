@@ -1,6 +1,45 @@
 import { Thought, User, Comment } from '../types';
 import { supabase } from './supabaseService';
 
+// Helper to convert camelCase to snake_case
+const toSnakeCase = (obj: any): any => {
+  if (obj === null || obj === undefined) return obj;
+  if (obj instanceof Date) return obj;
+  if (typeof obj !== 'object') return obj;
+  
+  if (Array.isArray(obj)) {
+    return obj.map(item => toSnakeCase(item));
+  }
+  
+  const result: any = {};
+  for (const key in obj) {
+    if (obj.hasOwnProperty(key)) {
+      const snakeKey = key.replace(/([A-Z])/g, '_$1').toLowerCase();
+      result[snakeKey] = toSnakeCase(obj[key]);
+    }
+  }
+  return result;
+};
+
+// Helper to convert snake_case to camelCase
+const toCamelCase = (obj: any): any => {
+  if (obj === null || obj === undefined) return obj;
+  if (typeof obj !== 'object') return obj;
+  
+  if (Array.isArray(obj)) {
+    return obj.map(item => toCamelCase(item));
+  }
+  
+  const result: any = {};
+  for (const key in obj) {
+    if (obj.hasOwnProperty(key)) {
+      const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+      result[camelKey] = toCamelCase(obj[key]);
+    }
+  }
+  return result;
+};
+
 export const supabaseStorageService = {
   // Thoughts
   async getThoughts(): Promise<Thought[]> {
@@ -14,13 +53,13 @@ export const supabaseStorageService = {
       return [];
     }
     
-    return data || [];
+    return toCamelCase(data) || [];
   },
 
   async saveThought(thought: Omit<Thought, 'id'>): Promise<Thought | null> {
     const { data, error } = await supabase
       .from('thoughts')
-      .insert([thought])
+      .insert([toSnakeCase(thought)])
       .select()
       .single();
     
@@ -29,13 +68,13 @@ export const supabaseStorageService = {
       return null;
     }
     
-    return data;
+    return toCamelCase(data);
   },
 
   async updateThought(id: string, updates: Partial<Thought>): Promise<Thought | null> {
     const { data, error } = await supabase
       .from('thoughts')
-      .update(updates)
+      .update(toSnakeCase(updates))
       .eq('id', id)
       .select()
       .single();
@@ -45,7 +84,7 @@ export const supabaseStorageService = {
       return null;
     }
     
-    return data;
+    return toCamelCase(data);
   },
 
   async deleteThought(id: string): Promise<boolean> {
@@ -73,13 +112,13 @@ export const supabaseStorageService = {
       return [];
     }
     
-    return data || [];
+    return toCamelCase(data) || [];
   },
 
   async saveUser(user: Omit<User, 'id'>): Promise<User | null> {
     const { data, error } = await supabase
       .from('users')
-      .insert([user])
+      .insert([toSnakeCase(user)])
       .select()
       .single();
     
@@ -88,13 +127,13 @@ export const supabaseStorageService = {
       return null;
     }
     
-    return data;
+    return toCamelCase(data);
   },
 
   async updateUser(id: string, updates: Partial<User>): Promise<User | null> {
     const { data, error } = await supabase
       .from('users')
-      .update(updates)
+      .update(toSnakeCase(updates))
       .eq('id', id)
       .select()
       .single();
@@ -104,7 +143,7 @@ export const supabaseStorageService = {
       return null;
     }
     
-    return data;
+    return toCamelCase(data);
   },
 
   // Comments
@@ -120,13 +159,13 @@ export const supabaseStorageService = {
       return [];
     }
     
-    return data || [];
+    return toCamelCase(data) || [];
   },
 
   async addComment(comment: Omit<Comment, 'id'>): Promise<Comment | null> {
     const { data, error } = await supabase
       .from('comments')
-      .insert([comment])
+      .insert([toSnakeCase(comment)])
       .select()
       .single();
     
@@ -135,7 +174,7 @@ export const supabaseStorageService = {
       return null;
     }
     
-    return data;
+    return toCamelCase(data);
   },
 
   async deleteComment(id: string): Promise<boolean> {

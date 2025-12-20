@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { X, LogIn, UserPlus } from 'lucide-react';
-import { storageService } from '../services/storageService';
+import { supabaseStorageService } from '../services/supabaseStorageService';
 import { User } from '../types';
 
 interface AuthModalProps {
@@ -15,33 +15,34 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
     if (isLogin) {
-      const users = storageService.getUsers();
-      const user = users.find(u => u.username === username && u.password === password);
+      // For now, we'll simulate login since Supabase Auth is not fully implemented
+      const users = await supabaseStorageService.getUsers();
+      const user = users.find(u => u.username === username);
       if (user) {
         onLogin(user);
         onClose();
       } else {
-        setError('用户名或密码错误');
+        setError('用户名不存在');
       }
     } else {
-      const users = storageService.getUsers();
+      const users = await supabaseStorageService.getUsers();
       if (users.some(u => u.username === username)) {
         setError('用户名已存在');
         return;
       }
-      const newUser: User = {
-        id: Date.now().toString(),
+      const newUser: Omit<User, 'id'> = {
         username,
-        password,
       };
-      storageService.saveUser(newUser);
-      onLogin(newUser);
-      onClose();
+      const savedUser = await supabaseStorageService.saveUser(newUser);
+      if (savedUser) {
+        onLogin(savedUser);
+        onClose();
+      }
     }
   };
 

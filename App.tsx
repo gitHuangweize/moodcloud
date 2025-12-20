@@ -8,7 +8,7 @@ import ProfileView from './components/ProfileView';
 import { Thought, ThoughtType, User, Comment } from './types';
 import { INITIAL_THOUGHTS, COLORS } from './constants';
 import { geminiService } from './services/geminiService';
-import { storageService } from './services/storageService';
+import { supabaseStorageService } from './services/supabaseStorageService';
 import { Heart, MessageCircle, X, Send } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -18,19 +18,25 @@ const App: React.FC = () => {
   const [newCommentText, setNewCommentText] = useState('');
   const [isRefining, setIsRefining] = useState(false);
   
-  const [currentUser, setCurrentUser] = useState<User | null>(storageService.getCurrentUser());
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
 
-  // Initialize data from local storage or defaults
+  // Initialize data from Supabase
   useEffect(() => {
-    const savedThoughts = storageService.getThoughts();
-    if (savedThoughts.length > 0) {
-      setThoughts(savedThoughts);
-    } else {
-      setThoughts(INITIAL_THOUGHTS);
-      storageService.saveThoughts(INITIAL_THOUGHTS);
-    }
+    const loadData = async () => {
+      const savedThoughts = await supabaseStorageService.getThoughts();
+      if (savedThoughts.length > 0) {
+        setThoughts(savedThoughts);
+      } else {
+        setThoughts(INITIAL_THOUGHTS);
+        // Save initial thoughts to Supabase
+        for (const thought of INITIAL_THOUGHTS) {
+          await supabaseStorageService.saveThought(thought);
+        }
+      }
+    };
+    loadData();
 
     // Fetch supplementary AI thoughts
     const fetchAILayer = async () => {
@@ -50,7 +56,10 @@ const App: React.FC = () => {
       }));
       setThoughts(prev => {
         const combined = [...prev, ...aiThoughts];
-        storageService.saveThoughts(combined);
+        // Save AI thoughts to Supabase
+        aiThoughts.forEach(async (thought) => {
+          await supabaseStorageService.saveThought(thought);
+        });
         return combined;
       });
     };
@@ -58,21 +67,21 @@ const App: React.FC = () => {
     fetchAILayer();
   }, []);
 
-  // Sync thoughts to storage on change
-  useEffect(() => {
-    if (thoughts.length > 0) storageService.saveThoughts(thoughts);
-  }, [thoughts]);
+  // Sync thoughts to storage on change (removed for Supabase as we save on each operation)
 
   // Load comments when a thought is selected
   useEffect(() => {
     if (selectedThought) {
-      setComments(storageService.getComments(selectedThought.id));
+      const loadComments = async () => {
+        const comments = await supabaseStorageService.getComments(selectedThought.id);
+        setComments(comments);
+      };
+      loadComments();
     }
   }, [selectedThought]);
 
-  const handlePostThought = (content: string) => {
-    const newThought: Thought = {
-      id: Date.now().toString(),
+  const handlePostThought = async (content: string) => {
+    const newThought: Omit<Thought, 'id'> = {
       content,
       type: ThoughtType.WHISPER,
       author: currentUser ? currentUser.username : '匿名访客',
@@ -85,7 +94,10 @@ const App: React.FC = () => {
       fontSize: 22,
       color: COLORS[Math.floor(Math.random() * COLORS.length)]
     };
-    setThoughts(prev => [newThought, ...prev]);
+    const savedThought = await supabaseStorageService.saveThought(newThought);
+    if (savedThought) {
+      setThoughts(prev => [savedThought, ...prev]);
+    }
   };
 
   const handleRefine = async (content: string) => {
@@ -99,45 +111,57 @@ const App: React.FC = () => {
     }
   };
 
-  const handleLike = (id: string) => {
-    setThoughts(prev => prev.map(t => 
-      t.id === id ? { ...t, likes: t.likes + 1 } : t
-    ));
-    if (selectedThought?.id === id) {
-      setSelectedThought(prev => prev ? { ...prev, likes: prev.likes + 1 } : null);
+  const handleLike = async (id: string) => {
+    // Find the thought and increment likes
+    const thought = thoughts.find(t => t.id === id);
+    if (thought) {
+      const updatedThought = await supabaseStorageService.updateThought(id, {
+        likes: thought.likes + 1
+      });
+      if (updatedThought) {
+        setThoughts(prev => prev.map(t => t.id === id ? updatedThought : t));
+        if (selectedThought?.id === id) {
+          setSelectedThought(updatedThought);
+        }
+      }
     }
   };
 
-  const handleAddComment = (e: React.FormEvent) => {
+  const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCommentText.trim() || !selectedThought) return;
 
-    const newComment: Comment = {
-      id: Date.now().toString(),
+    const newComment: Omit<Comment, 'id'> = {
       thoughtId: selectedThought.id,
       author: currentUser ? currentUser.username : '匿名访客',
       content: newCommentText,
       timestamp: Date.now()
     };
 
-    storageService.addComment(newComment);
-    setComments(prev => [...prev, newComment]);
-    setNewCommentText('');
-    
-    // Update thought echo count as "engagement"
-    setThoughts(prev => prev.map(t => 
-      t.id === selectedThought.id ? { ...t, echoes: t.echoes + 1 } : t
-    ));
+    const savedComment = await supabaseStorageService.addComment(newComment);
+    if (savedComment) {
+      setComments(prev => [...prev, savedComment]);
+      setNewCommentText('');
+      
+      // Update thought echo count as "engagement"
+      const updatedThought = await supabaseStorageService.updateThought(selectedThought.id, {
+        echoes: selectedThought.echoes + 1
+      });
+      if (updatedThought) {
+        setSelectedThought(updatedThought);
+        setThoughts(prev => prev.map(t => t.id === selectedThought.id ? updatedThought : t));
+      }
+    }
   };
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
-    storageService.setCurrentUser(user);
+    // TODO: Implement proper auth with Supabase Auth
   };
 
   const handleLogout = () => {
     setCurrentUser(null);
-    storageService.setCurrentUser(null);
+    // TODO: Implement proper logout with Supabase Auth
     setShowProfile(false);
   };
 
