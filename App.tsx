@@ -9,6 +9,7 @@ import { Thought, ThoughtType, User, Comment } from './types';
 import { INITIAL_THOUGHTS, COLORS } from './constants';
 import { geminiService } from './services/geminiService';
 import { supabaseStorageService } from './services/supabaseStorageService';
+import { supabase } from './services/supabaseService';
 import { Heart, MessageCircle, X, Send } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -22,6 +23,43 @@ const App: React.FC = () => {
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
 
+  const authUserToAppUser = (u: any): User => ({
+    id: u.id,
+    username: u.user_metadata?.username || u.email?.split('@')?.[0] || '用户',
+  });
+
+  // Persist auth on refresh
+  useEffect(() => {
+    let mounted = true;
+
+    const initAuth = async () => {
+      console.log('初始化认证状态...');
+      const { data, error } = await supabase.auth.getSession();
+      console.log('获取到的 session:', data);
+      if (error) {
+        console.error('Error loading auth session:', error);
+        return;
+      }
+      if (!mounted) return;
+      const user = data.session?.user;
+      console.log('当前用户:', user);
+      setCurrentUser(user ? authUserToAppUser(user) : null);
+    };
+
+    initAuth();
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      console.log('认证状态变化:', _event, session?.user?.id);
+      const user = session?.user;
+      setCurrentUser(user ? authUserToAppUser(user) : null);
+    });
+
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
+  }, []);
+
   // Initialize data from Supabase
   useEffect(() => {
     const loadData = async () => {
@@ -32,7 +70,10 @@ const App: React.FC = () => {
         setThoughts(INITIAL_THOUGHTS);
         // Save initial thoughts to Supabase
         for (const thought of INITIAL_THOUGHTS) {
-          await supabaseStorageService.saveThought(thought);
+          // Supabase uses its own UUID primary key; do not send the local `id` field.
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { id, ...thoughtWithoutId } = thought;
+          await supabaseStorageService.saveThought(thoughtWithoutId);
         }
       }
     };
@@ -58,7 +99,9 @@ const App: React.FC = () => {
         const combined = [...prev, ...aiThoughts];
         // Save AI thoughts to Supabase
         aiThoughts.forEach(async (thought) => {
-          await supabaseStorageService.saveThought(thought);
+          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+          const { id, ...thoughtWithoutId } = thought;
+          await supabaseStorageService.saveThought(thoughtWithoutId);
         });
         return combined;
       });
@@ -156,12 +199,10 @@ const App: React.FC = () => {
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
-    // TODO: Implement proper auth with Supabase Auth
   };
 
-  const handleLogout = () => {
-    setCurrentUser(null);
-    // TODO: Implement proper logout with Supabase Auth
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
     setShowProfile(false);
   };
 

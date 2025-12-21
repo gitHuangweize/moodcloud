@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { X, LogIn, UserPlus } from 'lucide-react';
-import { supabaseStorageService } from '../services/supabaseStorageService';
+import { supabase } from '../services/supabaseService';
 import { User } from '../types';
 
 interface AuthModalProps {
@@ -11,37 +11,60 @@ interface AuthModalProps {
 
 const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
   const [isLogin, setIsLogin] = useState(true);
+  const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+
+  const authUserToAppUser = (u: any): User => ({
+    id: u.id,
+    username: u.user_metadata?.username || u.email?.split('@')?.[0] || '用户',
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
     if (isLogin) {
-      // For now, we'll simulate login since Supabase Auth is not fully implemented
-      const users = await supabaseStorageService.getUsers();
-      const user = users.find(u => u.username === username);
-      if (user) {
-        onLogin(user);
-        onClose();
-      } else {
-        setError('用户名不存在');
+      try {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (error) {
+          setError(error.message);
+          return;
+        }
+        if (data.user) {
+          onLogin(authUserToAppUser(data.user));
+          onClose();
+        }
+      } catch (err: any) {
+        setError(err?.message || '登录失败，请稍后重试');
       }
     } else {
-      const users = await supabaseStorageService.getUsers();
-      if (users.some(u => u.username === username)) {
-        setError('用户名已存在');
-        return;
-      }
-      const newUser: Omit<User, 'id'> = {
-        username,
-      };
-      const savedUser = await supabaseStorageService.saveUser(newUser);
-      if (savedUser) {
-        onLogin(savedUser);
-        onClose();
+      try {
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: {
+              username: username.trim(),
+            },
+          },
+        });
+        if (error) {
+          setError(error.message);
+          return;
+        }
+        if (data.user) {
+          onLogin(authUserToAppUser(data.user));
+          onClose();
+          return;
+        }
+        setError('注册成功，但需要验证邮箱后才能登录');
+      } catch (err: any) {
+        setError(err?.message || '注册失败，请稍后重试');
       }
     }
   };
@@ -60,15 +83,29 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-slate-600 mb-1">用户名</label>
+            <label className="block text-sm font-medium text-slate-600 mb-1">邮箱</label>
             <input
-              type="text"
+              type="email"
               required
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+              placeholder="your@email.com"
             />
           </div>
+          {!isLogin && (
+            <div>
+              <label className="block text-sm font-medium text-slate-600 mb-1">用户名</label>
+              <input
+                type="text"
+                required
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+                placeholder="起个昵称吧"
+              />
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium text-slate-600 mb-1">密码</label>
             <input
@@ -77,6 +114,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full px-4 py-3 rounded-xl bg-slate-50 border border-slate-200 focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+              placeholder="至少6位"
+              minLength={6}
             />
           </div>
           {error && <p className="text-red-500 text-xs italic">{error}</p>}
