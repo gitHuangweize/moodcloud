@@ -61,10 +61,10 @@
 
 #### 第 1 周（打通数据与权限）
 
-- [ ] **第 1 晚（2h）**：Supabase 端准备
+- [x] **第 1 晚（2h）**：Supabase 端准备
   - 产出：schema 按 A 方案调整（users.id、comments.author_id、RLS 修正草案）
   - 自测：在 Supabase SQL Editor 里能创建/更新 policy，不报错
-- [ ] **第 2 晚（2h）**：用户资料自动落库
+- [x] **第 2 晚（2h）**：用户资料自动落库
   - 产出：`auth.users -> public.users` 触发器（或你选择用前端 upsert 方案也行，但建议两者都有）
   - 自测：新注册账号后 public.users 有对应行，id 与 auth.uid 一致
 - [ ] **第 3 晚（2h）**：前端写入 author_id & 读写闭环
