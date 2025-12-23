@@ -1,6 +1,6 @@
 -- Create users table
 CREATE TABLE users (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  id UUID PRIMARY KEY,
   username TEXT UNIQUE NOT NULL,
   avatar TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -29,6 +29,7 @@ CREATE TABLE thoughts (
 CREATE TABLE comments (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   thought_id UUID REFERENCES thoughts(id) ON DELETE CASCADE,
+  author_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   author TEXT NOT NULL,
   content TEXT NOT NULL,
   timestamp BIGINT NOT NULL,
@@ -50,14 +51,17 @@ ALTER TABLE comments ENABLE ROW LEVEL SECURITY;
 -- Create policies
 -- Users can read all users but can only update their own
 CREATE POLICY "Users can view all users" ON users FOR SELECT USING (true);
+CREATE POLICY "Authenticated users can create own profile" ON users FOR INSERT WITH CHECK (auth.uid() = id);
 CREATE POLICY "Users can update own profile" ON users FOR UPDATE USING (auth.uid() = id);
 
 -- Anyone can read thoughts, only authenticated users can insert
 CREATE POLICY "Anyone can view thoughts" ON thoughts FOR SELECT USING (true);
-CREATE POLICY "Authenticated users can create thoughts" ON thoughts FOR INSERT WITH CHECK (auth.role() = 'authenticated');
+CREATE POLICY "Authenticated users can create thoughts" ON thoughts FOR INSERT WITH CHECK (auth.role() = 'authenticated' AND auth.uid() = author_id);
 CREATE POLICY "Users can update own thoughts" ON thoughts FOR UPDATE USING (auth.uid() = author_id);
+CREATE POLICY "Users can delete own thoughts" ON thoughts FOR DELETE USING (auth.uid() = author_id);
 
 -- Anyone can read comments, only authenticated users can insert
 CREATE POLICY "Anyone can view comments" ON comments FOR SELECT USING (true);
-CREATE POLICY "Authenticated users can create comments" ON comments FOR INSERT WITH CHECK (auth.role() = 'authenticated');
-CREATE POLICY "Users can update own comments" ON comments FOR UPDATE USING (auth.uid() = id);
+CREATE POLICY "Authenticated users can create comments" ON comments FOR INSERT WITH CHECK (auth.role() = 'authenticated' AND auth.uid() = author_id);
+CREATE POLICY "Users can update own comments" ON comments FOR UPDATE USING (auth.uid() = author_id);
+CREATE POLICY "Users can delete own comments" ON comments FOR DELETE USING (auth.uid() = author_id);

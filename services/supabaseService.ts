@@ -13,3 +13,6 @@ export const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKe
     autoRefreshToken: true,
   },
 });
+
+// 挂载到全局，方便 Console 测试
+(window as any).supabase = supabase;
