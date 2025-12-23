@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { X, LogIn, UserPlus } from 'lucide-react';
 import { supabase } from '../services/supabaseService';
 import { User } from '../types';
+import { ensureUserProfile } from '../services/userService';
 
 interface AuthModalProps {
   onClose: () => void;
@@ -36,8 +37,15 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
           return;
         }
         if (data.user) {
-          onLogin(authUserToAppUser(data.user));
-          onClose();
+          // 确保用户在 public.users 表中有记录
+          const userProfile = await ensureUserProfile(data.user);
+          if (userProfile) {
+            onLogin(userProfile);
+            onClose();
+          } else {
+            setError('登录成功，但获取用户资料失败');
+          }
+          return;
         }
       } catch (err: any) {
         setError(err?.message || '登录失败，请稍后重试');
@@ -58,9 +66,13 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
           return;
         }
         if (data.user) {
-          onLogin(authUserToAppUser(data.user));
-          onClose();
-          return;
+          // 确保用户在 public.users 表中有记录
+          const userProfile = await ensureUserProfile(data.user);
+          if (userProfile) {
+            onLogin(userProfile);
+            onClose();
+            return;
+          }
         }
         setError('注册成功，但需要验证邮箱后才能登录');
       } catch (err: any) {

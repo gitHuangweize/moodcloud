@@ -4,13 +4,52 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
+DECLARE
+  base_username TEXT;
+  final_username TEXT;
+  suffix INTEGER := 0;
+  max_attempts INTEGER := 10;
 BEGIN
-  INSERT INTO public.users (id, username, avatar)
-  VALUES (
-    NEW.id,
-    COALESCE(NEW.raw_user_meta_data->>'username', NEW.email),
-    NEW.raw_user_meta_data->>'avatar'
+  -- 生成基础 username
+  base_username := COALESCE(
+    -- 提取 email 的 @ 前部分
+    CASE 
+      WHEN NEW.email IS NOT NULL AND POSITION('@' IN NEW.email) > 0 
+      THEN SUBSTRING(NEW.email FROM 1 FOR POSITION('@' IN NEW.email) - 1)
+      ELSE NULL
+    END,
+    'user_' || SUBSTRING(NEW.id::text FROM 1 FOR 8)
   );
+  
+  -- 尝试插入，如果 username 冲突则添加数字后缀
+  final_username := base_username;
+  LOOP
+    BEGIN
+      INSERT INTO public.users (id, username, avatar)
+      VALUES (
+        NEW.id,
+        final_username,
+        NEW.raw_user_meta_data->>'avatar'
+      );
+      EXIT; -- 成功插入，退出循环
+    EXCEPTION 
+      WHEN unique_violation THEN
+        suffix := suffix + 1;
+        IF suffix > max_attempts THEN
+          -- 如果尝试次数过多，使用 uid 作为 username
+          final_username := 'user_' || NEW.id::text;
+          INSERT INTO public.users (id, username, avatar)
+          VALUES (
+            NEW.id,
+            final_username,
+            NEW.raw_user_meta_data->>'avatar'
+          );
+          EXIT;
+        END IF;
+        final_username := base_username || '_' || suffix;
+    END;
+  END LOOP;
+  
   RETURN NEW;
 END;
 $$;
