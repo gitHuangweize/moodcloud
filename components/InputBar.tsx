@@ -10,9 +10,13 @@ interface InputBarProps {
 
 const InputBar: React.FC<InputBarProps> = ({ onSubmit, onRefine, isRefining }) => {
   const [text, setText] = useState('');
+  const [isComposing, setIsComposing] = useState(false);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
+      if ((e.nativeEvent as any)?.isComposing || isComposing) {
+        return;
+      }
       e.preventDefault();
       if (text.trim()) {
         onSubmit(text, false);
@@ -31,6 +35,8 @@ const InputBar: React.FC<InputBarProps> = ({ onSubmit, onRefine, isRefining }) =
               type="text"
               value={text}
               onChange={(e) => setText(e.target.value)}
+              onCompositionStart={() => setIsComposing(true)}
+              onCompositionEnd={() => setIsComposing(false)}
               onKeyDown={handleKeyDown}
               placeholder="今天想说点什么..."
               className="flex-1 bg-transparent border-none focus:ring-0 text-slate-700 text-lg placeholder-slate-400"

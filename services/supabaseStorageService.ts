@@ -101,6 +101,18 @@ export const supabaseStorageService = {
     return true;
   },
 
+  async incrementThoughtLikes(id: string): Promise<number | null> {
+    const { data, error } = await supabase
+      .rpc('increment_thought_likes', { p_thought_id: id });
+
+    if (error) {
+      console.error('Error incrementing thought likes:', error);
+      return null;
+    }
+
+    return typeof data === 'number' ? data : null;
+  },
+
   // Users
   async getUsers(): Promise<User[]> {
     const { data, error } = await supabase
