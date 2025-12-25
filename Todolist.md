@@ -67,9 +67,15 @@
 - [x] **第 2 晚（2h）**：用户资料自动落库
   - 产出：`auth.users -> public.users` 触发器（或你选择用前端 upsert 方案也行，但建议两者都有）
   - 自测：新注册账号后 public.users 有对应行，id 与 auth.uid 一致
-- [ ] **第 3 晚（2h）**：前端写入 author_id & 读写闭环
-  - 产出：发布 thought/comment 时写入 `author_id`；RLS 下可正常 insert/update
+- [x] **第 3 晚（2h）**：前端写入 author_id & 读写闭环
+  - 产出：发布 thought/comment 时写入 `author_id`；RLS 下可正常 insert/update/delete
+  - 产出：作者可编辑/删除自己的 thought（详情弹窗 + 个人主页入口）；非作者不可见且 RLS 兜底
+  - 产出：点赞改为 RPC 自增（匿名/非作者可点赞，不放开 thoughts 表 UPDATE）
+  - 产出：点赞状态本地去重（未点赞不显示填充；同一浏览器防重复点赞）
+  - 产出：输入法组合输入（IME composing）下 Enter 不误发送
   - 自测：登录用户可发帖/评论；不同账号互相不可改对方内容
+  - 自测：作者可编辑/删除自己 thought；非作者看不到编辑/删除
+  - 自测：匿名/非作者可点赞；刷新后点赞数与本地已点赞状态正确
 
 #### 第 2 周（MVP 体验 + 上线）
 

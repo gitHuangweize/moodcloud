@@ -8,6 +8,7 @@ export enum ThoughtType {
 export interface Comment {
   id: string;
   thoughtId: string;
+  authorId: string;
   author: string;
   content: string;
   timestamp: number;

@@ -116,3 +116,19 @@ CREATE POLICY "Users can delete own comments"
   ON public.comments
   FOR DELETE
   USING (auth.uid() = author_id);
+
+-- 5) RPC: allow anyone to increment likes without opening UPDATE on thoughts
+CREATE OR REPLACE FUNCTION public.increment_thought_likes(p_thought_id uuid)
+RETURNS integer
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  UPDATE public.thoughts
+  SET likes = COALESCE(likes, 0) + 1
+  WHERE id = p_thought_id
+  RETURNING likes;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.increment_thought_likes(uuid) TO anon;
+GRANT EXECUTE ON FUNCTION public.increment_thought_likes(uuid) TO authenticated;

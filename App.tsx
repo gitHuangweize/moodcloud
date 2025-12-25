@@ -18,6 +18,9 @@ const App: React.FC = () => {
   const [comments, setComments] = useState<Comment[]>([]);
   const [newCommentText, setNewCommentText] = useState('');
   const [isRefining, setIsRefining] = useState(false);
+  const [isEditingThought, setIsEditingThought] = useState(false);
+  const [editingThoughtContent, setEditingThoughtContent] = useState('');
+  const [likedThoughtIds, setLikedThoughtIds] = useState<Set<string>>(new Set());
   
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -60,6 +63,17 @@ const App: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('moodcloud_liked_thought_ids');
+      const arr: unknown = raw ? JSON.parse(raw) : [];
+      const ids = Array.isArray(arr) ? arr.filter(x => typeof x === 'string') as string[] : [];
+      setLikedThoughtIds(new Set(ids));
+    } catch {
+      setLikedThoughtIds(new Set());
+    }
+  }, []);
+
   // Initialize data from Supabase
   useEffect(() => {
     const loadData = async () => {
@@ -68,13 +82,6 @@ const App: React.FC = () => {
         setThoughts(savedThoughts);
       } else {
         setThoughts(INITIAL_THOUGHTS);
-        // Save initial thoughts to Supabase
-        for (const thought of INITIAL_THOUGHTS) {
-          // Supabase uses its own UUID primary key; do not send the local `id` field.
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { id, ...thoughtWithoutId } = thought;
-          await supabaseStorageService.saveThought(thoughtWithoutId);
-        }
       }
     };
     loadData();
@@ -97,12 +104,6 @@ const App: React.FC = () => {
       }));
       setThoughts(prev => {
         const combined = [...prev, ...aiThoughts];
-        // Save AI thoughts to Supabase
-        aiThoughts.forEach(async (thought) => {
-          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-          const { id, ...thoughtWithoutId } = thought;
-          await supabaseStorageService.saveThought(thoughtWithoutId);
-        });
         return combined;
       });
     };
@@ -123,12 +124,16 @@ const App: React.FC = () => {
     }
   }, [selectedThought]);
 
-  const handlePostThought = async (content: string) => {
+  const handlePostThought = async (content: string, _isRefined?: boolean) => {
+    if (!currentUser) {
+      setShowAuthModal(true);
+      return;
+    }
     const newThought: Omit<Thought, 'id'> = {
       content,
       type: ThoughtType.WHISPER,
-      author: currentUser ? currentUser.username : '匿名访客',
-      authorId: currentUser?.id,
+      author: currentUser.username,
+      authorId: currentUser.id,
       timestamp: Date.now(),
       likes: 0,
       echoes: 0,
@@ -145,6 +150,10 @@ const App: React.FC = () => {
 
   const handleRefine = async (content: string) => {
     if (!content.trim()) return;
+    if (!currentUser) {
+      setShowAuthModal(true);
+      return;
+    }
     setIsRefining(true);
     try {
       const refined = await geminiService.refineThought(content);
@@ -158,25 +167,38 @@ const App: React.FC = () => {
     // Find the thought and increment likes
     const thought = thoughts.find(t => t.id === id);
     if (thought) {
-      const updatedThought = await supabaseStorageService.updateThought(id, {
-        likes: thought.likes + 1
-      });
-      if (updatedThought) {
-        setThoughts(prev => prev.map(t => t.id === id ? updatedThought : t));
-        if (selectedThought?.id === id) {
-          setSelectedThought(updatedThought);
-        }
+      if (likedThoughtIds.has(id)) {
+        return;
       }
+      const newLikes = await supabaseStorageService.incrementThoughtLikes(id);
+      if (newLikes === null) return;
+
+      setThoughts(prev => prev.map(t => t.id === id ? { ...t, likes: newLikes } : t));
+      if (selectedThought?.id === id) {
+        setSelectedThought(prev => prev ? { ...prev, likes: newLikes } : prev);
+      }
+
+      setLikedThoughtIds(prev => {
+        const next = new Set(prev);
+        next.add(id);
+        localStorage.setItem('moodcloud_liked_thought_ids', JSON.stringify(Array.from(next)));
+        return next;
+      });
     }
   };
 
   const handleAddComment = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCommentText.trim() || !selectedThought) return;
+    if (!currentUser) {
+      setShowAuthModal(true);
+      return;
+    }
 
     const newComment: Omit<Comment, 'id'> = {
       thoughtId: selectedThought.id,
-      author: currentUser ? currentUser.username : '匿名访客',
+      authorId: currentUser.id,
+      author: currentUser.username,
       content: newCommentText,
       timestamp: Date.now()
     };
@@ -187,12 +209,14 @@ const App: React.FC = () => {
       setNewCommentText('');
       
       // Update thought echo count as "engagement"
-      const updatedThought = await supabaseStorageService.updateThought(selectedThought.id, {
-        echoes: selectedThought.echoes + 1
-      });
-      if (updatedThought) {
-        setSelectedThought(updatedThought);
-        setThoughts(prev => prev.map(t => t.id === selectedThought.id ? updatedThought : t));
+      if (selectedThought.authorId && selectedThought.authorId === currentUser.id) {
+        const updatedThought = await supabaseStorageService.updateThought(selectedThought.id, {
+          echoes: selectedThought.echoes + 1
+        });
+        if (updatedThought) {
+          setSelectedThought(updatedThought);
+          setThoughts(prev => prev.map(t => t.id === selectedThought.id ? updatedThought : t));
+        }
       }
     }
   };
@@ -209,6 +233,73 @@ const App: React.FC = () => {
   const handleMyClick = () => {
     if (currentUser) setShowProfile(true);
     else setShowAuthModal(true);
+  };
+
+  const canManageSelectedThought =
+    !!currentUser &&
+    !!selectedThought &&
+    !!selectedThought.authorId &&
+    selectedThought.authorId === currentUser.id;
+
+  const startEditSelectedThought = () => {
+    if (!selectedThought) return;
+    setIsEditingThought(true);
+    setEditingThoughtContent(selectedThought.content);
+  };
+
+  const cancelEditSelectedThought = () => {
+    setIsEditingThought(false);
+    setEditingThoughtContent('');
+  };
+
+  const saveEditSelectedThought = async () => {
+    if (!selectedThought) return;
+    if (!editingThoughtContent.trim()) return;
+    if (!canManageSelectedThought) return;
+
+    const updated = await supabaseStorageService.updateThought(selectedThought.id, {
+      content: editingThoughtContent
+    });
+    if (!updated) return;
+
+    setSelectedThought(updated);
+    setThoughts(prev => prev.map(t => t.id === updated.id ? updated : t));
+    cancelEditSelectedThought();
+  };
+
+  const deleteSelectedThought = async () => {
+    if (!selectedThought) return;
+    if (!canManageSelectedThought) return;
+
+    const ok = await supabaseStorageService.deleteThought(selectedThought.id);
+    if (!ok) return;
+
+    setThoughts(prev => prev.filter(t => t.id !== selectedThought.id));
+    setSelectedThought(null);
+  };
+
+  const openThoughtFromProfile = (thought: Thought) => {
+    setSelectedThought(thought);
+    setShowProfile(false);
+  };
+
+  const deleteThoughtsFromProfile = async (ids: string[]) => {
+    if (!ids.length) return;
+
+    let okAll = true;
+    for (const id of ids) {
+      const ok = await supabaseStorageService.deleteThought(id);
+      if (!ok) okAll = false;
+    }
+
+    setThoughts(prev => prev.filter(t => !ids.includes(t.id)));
+    if (selectedThought && ids.includes(selectedThought.id)) {
+      setSelectedThought(null);
+    }
+
+    if (okAll) {
+      return;
+    }
   };
 
   return (
@@ -245,9 +336,34 @@ const App: React.FC = () => {
                   {selectedThought.type}
                 </span>
               </div>
-              <p className="text-2xl font-serif text-slate-800 leading-relaxed mb-6">
-                「 {selectedThought.content} 」
-              </p>
+              {isEditingThought ? (
+                <div className="mb-6">
+                  <textarea
+                    value={editingThoughtContent}
+                    onChange={(e) => setEditingThoughtContent(e.target.value)}
+                    className="w-full min-h-24 px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-slate-700 text-base outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <div className="flex justify-end gap-3 mt-3">
+                    <button
+                      onClick={cancelEditSelectedThought}
+                      className="px-4 py-2 rounded-xl bg-slate-100 text-slate-600 hover:bg-slate-200 transition-colors"
+                    >
+                      取消
+                    </button>
+                    <button
+                      onClick={saveEditSelectedThought}
+                      disabled={!editingThoughtContent.trim()}
+                      className="px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition-colors disabled:bg-slate-300"
+                    >
+                      保存
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-2xl font-serif text-slate-800 leading-relaxed mb-6">
+                  「 {selectedThought.content} 」
+                </p>
+              )}
               <div className="flex items-center justify-between text-xs text-slate-400 border-b border-slate-50 pb-4">
                 <span>由 {selectedThought.author} 发布</span>
                 <span>{new Date(selectedThought.timestamp).toLocaleString()}</span>
@@ -283,9 +399,26 @@ const App: React.FC = () => {
                   onClick={() => handleLike(selectedThought.id)}
                   className="flex items-center gap-2 text-slate-400 hover:text-pink-500 transition-colors"
                 >
-                  <Heart size={22} className={selectedThought.likes > 0 ? 'fill-pink-500 text-pink-500' : ''} />
+                  <Heart size={22} className={likedThoughtIds.has(selectedThought.id) ? 'fill-pink-500 text-pink-500' : ''} />
                   <span className="text-sm font-bold">{selectedThought.likes}</span>
                 </button>
+
+                {canManageSelectedThought && !isEditingThought && (
+                  <>
+                    <button
+                      onClick={startEditSelectedThought}
+                      className="text-sm font-bold text-slate-400 hover:text-indigo-600 transition-colors"
+                    >
+                      编辑
+                    </button>
+                    <button
+                      onClick={deleteSelectedThought}
+                      className="text-sm font-bold text-slate-400 hover:text-red-600 transition-colors"
+                    >
+                      删除
+                    </button>
+                  </>
+                )}
               </div>
 
               <form onSubmit={handleAddComment} className="flex gap-3">
@@ -325,7 +458,8 @@ const App: React.FC = () => {
           thoughts={thoughts}
           onClose={() => setShowProfile(false)}
           onLogout={handleLogout}
-          onSelectThought={setSelectedThought}
+          onSelectThought={openThoughtFromProfile}
+          onDeleteThoughts={deleteThoughtsFromProfile}
         />
       )}
 
