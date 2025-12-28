@@ -12,9 +12,6 @@ import { supabaseStorageService } from './services/supabaseStorageService';
 import { supabase } from './services/supabaseService';
 import { Heart, MessageCircle, X, Send } from 'lucide-react';
 
-// 暴露到全局供测试使用
-(window as any).supabaseStorageService = supabaseStorageService;
-
 const App: React.FC = () => {
   const [thoughts, setThoughts] = useState<Thought[]>([]);
   const [selectedThought, setSelectedThought] = useState<Thought | null>(null);
