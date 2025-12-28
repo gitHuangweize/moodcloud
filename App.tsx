@@ -12,6 +12,9 @@ import { supabaseStorageService } from './services/supabaseStorageService';
 import { supabase } from './services/supabaseService';
 import { Heart, MessageCircle, X, Send } from 'lucide-react';
 
+// 暴露到全局供测试使用
+(window as any).supabaseStorageService = supabaseStorageService;
+
 const App: React.FC = () => {
   const [thoughts, setThoughts] = useState<Thought[]>([]);
   const [selectedThought, setSelectedThought] = useState<Thought | null>(null);
@@ -21,6 +24,7 @@ const App: React.FC = () => {
   const [isEditingThought, setIsEditingThought] = useState(false);
   const [editingThoughtContent, setEditingThoughtContent] = useState('');
   const [likedThoughtIds, setLikedThoughtIds] = useState<Set<string>>(new Set());
+  const [refreshKey, setRefreshKey] = useState(0); // 用于触发换一批
   
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -302,14 +306,25 @@ const App: React.FC = () => {
     }
   };
 
+  const handleRefreshBatch = () => {
+    // 通过更新 refreshKey 来触发 ThoughtCloud 重新抽样
+    setRefreshKey(prev => prev + 1);
+  };
+
   return (
     <div className="relative w-full h-screen">
-      <NavBar currentUser={currentUser} onMyClick={handleMyClick} />
+      <NavBar 
+        currentUser={currentUser} 
+        onMyClick={handleMyClick} 
+        onRefreshClick={handleRefreshBatch}
+      />
       
       <main className="pt-16 pb-32">
         <ThoughtCloud 
           thoughts={thoughts} 
           onThoughtClick={setSelectedThought} 
+          maxItems={100}
+          refreshKey={refreshKey}
         />
       </main>
 

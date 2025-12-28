@@ -1,14 +1,15 @@
 
 import React from 'react';
-import { User as UserIcon, Cloud, Info, LogIn } from 'lucide-react';
+import { User as UserIcon, Cloud, Info, LogIn, RefreshCw } from 'lucide-react';
 import { User } from '../types';
 
 interface NavBarProps {
   currentUser: User | null;
   onMyClick: () => void;
+  onRefreshClick?: () => void;
 }
 
-const NavBar: React.FC<NavBarProps> = ({ currentUser, onMyClick }) => {
+const NavBar: React.FC<NavBarProps> = ({ currentUser, onMyClick, onRefreshClick }) => {
   return (
     <nav className="fixed top-0 left-0 right-0 h-16 flex items-center justify-between px-8 z-50 bg-white/10 backdrop-blur-md border-b border-white/20 select-none">
       <div className="flex items-center gap-2">
@@ -20,7 +21,18 @@ const NavBar: React.FC<NavBarProps> = ({ currentUser, onMyClick }) => {
         </h1>
       </div>
 
-      <div className="flex items-center gap-6">
+      <div className="flex items-center gap-4">
+        {onRefreshClick && (
+          <button 
+            onClick={onRefreshClick}
+            className="px-3 py-2 rounded-full bg-white shadow-sm border border-slate-100 text-slate-600 text-sm font-semibold flex items-center gap-2 hover:shadow-md transition-all active:scale-95"
+            title="换一批"
+          >
+            <RefreshCw size={16} />
+            <span className="hidden sm:inline">换一批</span>
+          </button>
+        )}
+        
         <button className="hidden md:flex text-slate-500 hover:text-indigo-600 transition-colors items-center gap-1 text-sm font-medium">
           <Info size={18} />
           <span>关于</span>
