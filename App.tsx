@@ -1,19 +1,25 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import NavBar from './components/NavBar';
 import ThoughtCloud from './components/ThoughtCloud';
 import InputBar from './components/InputBar';
 import AuthModal from './components/AuthModal';
 import ProfileView from './components/ProfileView';
+import StatusMessage from './components/StatusMessage';
+import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { Thought, ThoughtType, User, Comment } from './types';
 import { INITIAL_THOUGHTS, COLORS } from './constants';
 import { geminiService } from './services/geminiService';
 import { supabaseStorageService } from './services/supabaseStorageService';
 import { supabase } from './services/supabaseService';
-import { Heart, MessageCircle, X, Send } from 'lucide-react';
+import { Heart, MessageCircle, X, Send, WifiOff, CloudOff, Inbox } from 'lucide-react';
 
 const App: React.FC = () => {
   const [thoughts, setThoughts] = useState<Thought[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
   const [selectedThought, setSelectedThought] = useState<Thought | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [newCommentText, setNewCommentText] = useState('');
@@ -26,6 +32,16 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+
+  // Toast Helper
+  const addToast = useCallback((message: string, type: ToastType = 'info') => {
+    const id = Date.now().toString() + Math.random();
+    setToasts(prev => [...prev, { id, message, type }]);
+  }, []);
+
+  const removeToast = useCallback((id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  }, []);
 
   const authUserToAppUser = (u: any): User => ({
     id: u.id,
@@ -76,54 +92,81 @@ const App: React.FC = () => {
   }, []);
 
   // Initialize data from Supabase
-  useEffect(() => {
-    const loadData = async () => {
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
       const savedThoughts = await supabaseStorageService.getThoughts();
       if (savedThoughts.length > 0) {
         setThoughts(savedThoughts);
       } else {
-        setThoughts(INITIAL_THOUGHTS);
+        setThoughts([]);
       }
-    };
+      
+      // Fetch supplementary AI thoughts only if needed or as background
+      // For now, let's mix them in if we have few thoughts or just always
+      // To match original logic:
+      if (savedThoughts.length === 0) {
+          // If no thoughts, maybe fallback to initial? 
+          // Or wait for AI.
+          // Let's keep logic simple:
+          // setThoughts(INITIAL_THOUGHTS); // Don't use static initial thoughts if we want to show empty state correctly, or use them as seed.
+          // The prompt says "Load failure hint", "Empty state".
+          // If I use INITIAL_THOUGHTS, I never see empty state.
+          // Let's rely on DB + AI.
+      }
+
+      // Fetch AI Layer
+      try {
+        const aiData = await geminiService.generateMockThoughts();
+        const aiThoughts: Thought[] = aiData.map((item, idx) => ({
+          id: `ai-${Date.now()}-${idx}`,
+          content: item.content || '',
+          type: item.type as ThoughtType || ThoughtType.WHISPER,
+          author: 'AI Whispers',
+          timestamp: Date.now(),
+          likes: Math.floor(Math.random() * 50),
+          echoes: Math.floor(Math.random() * 10),
+          x: Math.random() * 80 + 5,
+          y: Math.random() * 70 + 10,
+          fontSize: Math.floor(Math.random() * 12) + 14,
+          color: COLORS[Math.floor(Math.random() * COLORS.length)]
+        }));
+        
+        setThoughts(prev => [...prev, ...aiThoughts]);
+      } catch (aiErr) {
+        console.warn("AI generation failed, continuing with DB thoughts only", aiErr);
+        // Don't block app if AI fails
+      }
+
+    } catch (err: any) {
+      console.error("Data load failed:", err);
+      setError(err.message || "无法连接到云端，请检查网络连接");
+      addToast("数据加载失败", 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [addToast]);
+
+  useEffect(() => {
     loadData();
-
-    // Fetch supplementary AI thoughts
-    const fetchAILayer = async () => {
-      const aiData = await geminiService.generateMockThoughts();
-      const aiThoughts: Thought[] = aiData.map((item, idx) => ({
-        id: `ai-${Date.now()}-${idx}`,
-        content: item.content || '',
-        type: item.type as ThoughtType || ThoughtType.WHISPER,
-        author: 'AI Whispers',
-        timestamp: Date.now(),
-        likes: Math.floor(Math.random() * 50),
-        echoes: Math.floor(Math.random() * 10),
-        x: Math.random() * 80 + 5,
-        y: Math.random() * 70 + 10,
-        fontSize: Math.floor(Math.random() * 12) + 14,
-        color: COLORS[Math.floor(Math.random() * COLORS.length)]
-      }));
-      setThoughts(prev => {
-        const combined = [...prev, ...aiThoughts];
-        return combined;
-      });
-    };
-
-    fetchAILayer();
-  }, []);
-
-  // Sync thoughts to storage on change (removed for Supabase as we save on each operation)
+  }, [loadData]);
 
   // Load comments when a thought is selected
   useEffect(() => {
     if (selectedThought) {
       const loadComments = async () => {
-        const comments = await supabaseStorageService.getComments(selectedThought.id);
-        setComments(comments);
+        try {
+          const comments = await supabaseStorageService.getComments(selectedThought.id);
+          setComments(comments);
+        } catch (err) {
+          console.error("Failed to load comments:", err);
+          addToast("评论加载失败", 'error');
+        }
       };
       loadComments();
     }
-  }, [selectedThought]);
+  }, [selectedThought, addToast]);
 
   const handlePostThought = async (content: string, _isRefined?: boolean) => {
     if (!currentUser) {
@@ -143,9 +186,14 @@ const App: React.FC = () => {
       fontSize: 22,
       color: COLORS[Math.floor(Math.random() * COLORS.length)]
     };
-    const savedThought = await supabaseStorageService.saveThought(newThought);
-    if (savedThought) {
+
+    try {
+      const savedThought = await supabaseStorageService.saveThought(newThought);
       setThoughts(prev => [savedThought, ...prev]);
+      addToast("发布成功！", 'success');
+    } catch (err: any) {
+      console.error("Post thought failed:", err);
+      addToast("发布失败：" + (err.message || "未知错误"), 'error');
     }
   };
 
@@ -159,6 +207,8 @@ const App: React.FC = () => {
     try {
       const refined = await geminiService.refineThought(content);
       handlePostThought(refined);
+    } catch (err) {
+      addToast("AI 润色失败，请重试", 'error');
     } finally {
       setIsRefining(false);
     }
@@ -171,20 +221,27 @@ const App: React.FC = () => {
       if (likedThoughtIds.has(id)) {
         return;
       }
-      const newLikes = await supabaseStorageService.incrementThoughtLikes(id);
-      if (newLikes === null) return;
+      try {
+        const newLikes = await supabaseStorageService.incrementThoughtLikes(id);
+        
+        setThoughts(prev => prev.map(t => t.id === id ? { ...t, likes: newLikes } : t));
+        if (selectedThought?.id === id) {
+          setSelectedThought(prev => prev ? { ...prev, likes: newLikes } : prev);
+        }
 
-      setThoughts(prev => prev.map(t => t.id === id ? { ...t, likes: newLikes } : t));
-      if (selectedThought?.id === id) {
-        setSelectedThought(prev => prev ? { ...prev, likes: newLikes } : prev);
+        setLikedThoughtIds(prev => {
+          const next = new Set(prev);
+          next.add(id);
+          localStorage.setItem('moodcloud_liked_thought_ids', JSON.stringify(Array.from(next)));
+          return next;
+        });
+      } catch (err) {
+        console.error("Like failed:", err);
+        // Don't toast for likes usually, or maybe a subtle one? 
+        // Let's add toast if it fails hard?
+        // Actually, user expects instant feedback. Optimistic UI would be better but for now let's just handle error.
+        addToast("点赞失败，请稍后重试", 'error');
       }
-
-      setLikedThoughtIds(prev => {
-        const next = new Set(prev);
-        next.add(id);
-        localStorage.setItem('moodcloud_liked_thought_ids', JSON.stringify(Array.from(next)));
-        return next;
-      });
     }
   };
 
@@ -204,31 +261,39 @@ const App: React.FC = () => {
       timestamp: Date.now()
     };
 
-    const savedComment = await supabaseStorageService.addComment(newComment);
-    if (savedComment) {
+    try {
+      const savedComment = await supabaseStorageService.addComment(newComment);
       setComments(prev => [...prev, savedComment]);
       setNewCommentText('');
+      addToast("评论已发布", 'success');
       
       // Update thought echo count as "engagement"
       if (selectedThought.authorId && selectedThought.authorId === currentUser.id) {
-        const updatedThought = await supabaseStorageService.updateThought(selectedThought.id, {
-          echoes: selectedThought.echoes + 1
-        });
-        if (updatedThought) {
+        try {
+          const updatedThought = await supabaseStorageService.updateThought(selectedThought.id, {
+            echoes: selectedThought.echoes + 1
+          });
           setSelectedThought(updatedThought);
           setThoughts(prev => prev.map(t => t.id === selectedThought.id ? updatedThought : t));
+        } catch (ignore) {
+          // Non-critical update
         }
       }
+    } catch (err: any) {
+      console.error("Add comment failed:", err);
+      addToast("评论失败：" + (err.message || "未知错误"), 'error');
     }
   };
 
   const handleLogin = (user: User) => {
     setCurrentUser(user);
+    addToast(`欢迎回来，${user.username}`, 'success');
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setShowProfile(false);
+    addToast("已退出登录", 'info');
   };
 
   const handleMyClick = () => {
@@ -258,25 +323,34 @@ const App: React.FC = () => {
     if (!editingThoughtContent.trim()) return;
     if (!canManageSelectedThought) return;
 
-    const updated = await supabaseStorageService.updateThought(selectedThought.id, {
-      content: editingThoughtContent
-    });
-    if (!updated) return;
+    try {
+      const updated = await supabaseStorageService.updateThought(selectedThought.id, {
+        content: editingThoughtContent
+      });
 
-    setSelectedThought(updated);
-    setThoughts(prev => prev.map(t => t.id === updated.id ? updated : t));
-    cancelEditSelectedThought();
+      setSelectedThought(updated);
+      setThoughts(prev => prev.map(t => t.id === updated.id ? updated : t));
+      cancelEditSelectedThought();
+      addToast("更新成功", 'success');
+    } catch (err: any) {
+      console.error("Update thought failed:", err);
+      addToast("更新失败：" + (err.message || "未知错误"), 'error');
+    }
   };
 
   const deleteSelectedThought = async () => {
     if (!selectedThought) return;
     if (!canManageSelectedThought) return;
 
-    const ok = await supabaseStorageService.deleteThought(selectedThought.id);
-    if (!ok) return;
-
-    setThoughts(prev => prev.filter(t => t.id !== selectedThought.id));
-    setSelectedThought(null);
+    try {
+      await supabaseStorageService.deleteThought(selectedThought.id);
+      setThoughts(prev => prev.filter(t => t.id !== selectedThought.id));
+      setSelectedThought(null);
+      addToast("已删除", 'success');
+    } catch (err: any) {
+      console.error("Delete thought failed:", err);
+      addToast("删除失败：" + (err.message || "权限不足或网络错误"), 'error');
+    }
   };
 
   const openThoughtFromProfile = (thought: Thought) => {
@@ -287,19 +361,25 @@ const App: React.FC = () => {
   const deleteThoughtsFromProfile = async (ids: string[]) => {
     if (!ids.length) return;
 
-    let okAll = true;
+    let failCount = 0;
     for (const id of ids) {
-      const ok = await supabaseStorageService.deleteThought(id);
-      if (!ok) okAll = false;
+      try {
+        await supabaseStorageService.deleteThought(id);
+        setThoughts(prev => prev.filter(t => t.id !== id));
+      } catch (err) {
+        failCount++;
+      }
     }
-
-    setThoughts(prev => prev.filter(t => !ids.includes(t.id)));
+    
+    // Also clear selection if deleted
     if (selectedThought && ids.includes(selectedThought.id)) {
       setSelectedThought(null);
     }
 
-    if (okAll) {
-      return;
+    if (failCount > 0) {
+      addToast(`删除完成，但有 ${failCount} 个失败`, 'info');
+    } else {
+      addToast("删除成功", 'success');
     }
   };
 
@@ -310,19 +390,44 @@ const App: React.FC = () => {
 
   return (
     <div className="relative w-full h-screen">
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
+      
       <NavBar 
         currentUser={currentUser} 
         onMyClick={handleMyClick} 
         onRefreshClick={handleRefreshBatch}
       />
       
-      <main className="pt-16 pb-32">
-        <ThoughtCloud 
-          thoughts={thoughts} 
-          onThoughtClick={setSelectedThought} 
-          maxItems={100}
-          refreshKey={refreshKey}
-        />
+      <main className="pt-16 pb-32 h-full flex flex-col justify-center">
+        {isLoading ? (
+          <div className="flex flex-col items-center justify-center space-y-4">
+             <div className="w-12 h-12 border-4 border-indigo-100 border-t-indigo-500 rounded-full animate-spin"></div>
+             <p className="text-slate-400 animate-pulse">正在收集思绪...</p>
+          </div>
+        ) : error ? (
+          <StatusMessage
+            icon={WifiOff}
+            title="无法连接到云端"
+            description={error}
+            actionLabel="重试"
+            onAction={loadData}
+          />
+        ) : thoughts.length === 0 ? (
+          <StatusMessage
+            icon={Inbox}
+            title="这里空空如也"
+            description="还没有人发布思绪，也许你是第一个？"
+            actionLabel="发布思绪"
+            onAction={() => document.querySelector<HTMLInputElement>('input[type="text"]')?.focus()}
+          />
+        ) : (
+          <ThoughtCloud 
+            thoughts={thoughts} 
+            onThoughtClick={setSelectedThought} 
+            maxItems={100}
+            refreshKey={refreshKey}
+          />
+        )}
       </main>
 
       <InputBar 

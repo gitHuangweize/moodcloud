@@ -50,13 +50,13 @@ export const supabaseStorageService = {
     
     if (error) {
       console.error('Error fetching thoughts:', error);
-      return [];
+      throw error;
     }
     
     return toCamelCase(data) || [];
   },
 
-  async saveThought(thought: Omit<Thought, 'id'>): Promise<Thought | null> {
+  async saveThought(thought: Omit<Thought, 'id'>): Promise<Thought> {
     const { data, error } = await supabase
       .from('thoughts')
       .insert([toSnakeCase(thought)])
@@ -65,13 +65,13 @@ export const supabaseStorageService = {
     
     if (error) {
       console.error('Error saving thought:', error);
-      return null;
+      throw error;
     }
     
     return toCamelCase(data);
   },
 
-  async updateThought(id: string, updates: Partial<Thought>): Promise<Thought | null> {
+  async updateThought(id: string, updates: Partial<Thought>): Promise<Thought> {
     const { data, error } = await supabase
       .from('thoughts')
       .update(toSnakeCase(updates))
@@ -81,7 +81,7 @@ export const supabaseStorageService = {
     
     if (error) {
       console.error('Error updating thought:', error);
-      return null;
+      throw error;
     }
     
     return toCamelCase(data);
@@ -95,22 +95,22 @@ export const supabaseStorageService = {
     
     if (error) {
       console.error('Error deleting thought:', error);
-      return false;
+      throw error;
     }
     
     return true;
   },
 
-  async incrementThoughtLikes(id: string): Promise<number | null> {
+  async incrementThoughtLikes(id: string): Promise<number> {
     const { data, error } = await supabase
       .rpc('increment_thought_likes', { p_thought_id: id });
 
     if (error) {
       console.error('Error incrementing thought likes:', error);
-      return null;
+      throw error;
     }
 
-    return typeof data === 'number' ? data : null;
+    return typeof data === 'number' ? data : 0;
   },
 
   // Users
@@ -121,13 +121,13 @@ export const supabaseStorageService = {
     
     if (error) {
       console.error('Error fetching users:', error);
-      return [];
+      throw error;
     }
     
     return toCamelCase(data) || [];
   },
 
-  async saveUser(user: Omit<User, 'id'>): Promise<User | null> {
+  async saveUser(user: Omit<User, 'id'>): Promise<User> {
     const { data, error } = await supabase
       .from('users')
       .insert([toSnakeCase(user)])
@@ -136,13 +136,13 @@ export const supabaseStorageService = {
     
     if (error) {
       console.error('Error saving user:', error);
-      return null;
+      throw error;
     }
     
     return toCamelCase(data);
   },
 
-  async updateUser(id: string, updates: Partial<User>): Promise<User | null> {
+  async updateUser(id: string, updates: Partial<User>): Promise<User> {
     const { data, error } = await supabase
       .from('users')
       .update(toSnakeCase(updates))
@@ -152,7 +152,7 @@ export const supabaseStorageService = {
     
     if (error) {
       console.error('Error updating user:', error);
-      return null;
+      throw error;
     }
     
     return toCamelCase(data);
@@ -168,13 +168,13 @@ export const supabaseStorageService = {
     
     if (error) {
       console.error('Error fetching comments:', error);
-      return [];
+      throw error;
     }
     
     return toCamelCase(data) || [];
   },
 
-  async addComment(comment: Omit<Comment, 'id'>): Promise<Comment | null> {
+  async addComment(comment: Omit<Comment, 'id'>): Promise<Comment> {
     const { data, error } = await supabase
       .from('comments')
       .insert([toSnakeCase(comment)])
@@ -183,7 +183,7 @@ export const supabaseStorageService = {
     
     if (error) {
       console.error('Error adding comment:', error);
-      return null;
+      throw error;
     }
     
     return toCamelCase(data);
@@ -197,7 +197,7 @@ export const supabaseStorageService = {
     
     if (error) {
       console.error('Error deleting comment:', error);
-      return false;
+      throw error;
     }
     
     return true;
