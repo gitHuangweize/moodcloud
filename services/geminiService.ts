@@ -37,6 +37,35 @@ export const geminiService = {
   },
 
   /**
+   * Classifies a thought into GRUMBLE, INSIGHT, or WHISPER
+   */
+  async classifyThought(content: string): Promise<ThoughtType> {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: `Classify the following text into "GRUMBLE" (complaint, venting), "INSIGHT" (learning, realization), or "WHISPER" (neutral, random thought). Text: "${content}"`,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              type: { type: Type.STRING, enum: ['GRUMBLE', 'INSIGHT', 'WHISPER'] }
+            },
+            required: ['type']
+          }
+        }
+      });
+      
+      const result = JSON.parse(response.text || '{}');
+      console.log(result);
+      return (result.type as ThoughtType) || ThoughtType.WHISPER;
+    } catch (error) {
+      console.warn('AI classification failed, falling back to WHISPER', error);
+      return ThoughtType.WHISPER;
+    }
+  },
+
+  /**
    * Refines a user's raw grumble into something more poetic or structured
    */
   async refineThought(input: string): Promise<string> {

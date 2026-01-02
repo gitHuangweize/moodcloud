@@ -173,9 +173,18 @@ const App: React.FC = () => {
       setShowAuthModal(true);
       return;
     }
+
+    // AI Classification
+    let thoughtType = ThoughtType.WHISPER;
+    try {
+      thoughtType = await geminiService.classifyThought(content);
+    } catch (err) {
+      console.warn("Classification failed, defaulting to WHISPER", err);
+    }
+
     const newThought: Omit<Thought, 'id'> = {
       content,
-      type: ThoughtType.WHISPER,
+      type: thoughtType,
       author: currentUser.username,
       authorId: currentUser.id,
       timestamp: Date.now(),
