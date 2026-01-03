@@ -43,10 +43,13 @@ const App: React.FC = () => {
     setToasts(prev => prev.filter(t => t.id !== id));
   }, []);
 
-  const authUserToAppUser = (u: any): User => ({
-    id: u.id,
-    username: u.user_metadata?.username || u.email?.split('@')?.[0] || '用户',
-  });
+  const authUserToAppUser = (u: any): User => {
+    const metadataUsername = u.user_metadata?.username;
+    return {
+      id: u.id,
+      username: metadataUsername || u.email?.split('@')?.[0] || '用户',
+    };
+  };
 
   // Persist auth on refresh
   useEffect(() => {
@@ -107,38 +110,29 @@ const App: React.FC = () => {
       // For now, let's mix them in if we have few thoughts or just always
       // To match original logic:
       if (savedThoughts.length === 0) {
-          // If no thoughts, maybe fallback to initial? 
-          // Or wait for AI.
-          // Let's keep logic simple:
-          // setThoughts(INITIAL_THOUGHTS); // Don't use static initial thoughts if we want to show empty state correctly, or use them as seed.
-          // The prompt says "Load failure hint", "Empty state".
-          // If I use INITIAL_THOUGHTS, I never see empty state.
-          // Let's rely on DB + AI.
+          // Fetch AI Layer
+        try {
+          const aiData = await geminiService.generateMockThoughts();
+          const aiThoughts: Thought[] = aiData.map((item, idx) => ({
+            id: `ai-${Date.now()}-${idx}`,
+            content: item.content || '',
+            type: item.type as ThoughtType || ThoughtType.WHISPER,
+            author: 'AI Whispers',
+            timestamp: Date.now(),
+            likes: Math.floor(Math.random() * 50),
+            echoes: Math.floor(Math.random() * 10),
+            x: Math.random() * 80 + 5,
+            y: Math.random() * 70 + 10,
+            fontSize: Math.floor(Math.random() * 12) + 14,
+            color: COLORS[Math.floor(Math.random() * COLORS.length)]
+          }));
+          
+          setThoughts(prev => [...prev, ...aiThoughts]);
+        } catch (aiErr) {
+          console.warn("AI generation failed, continuing with DB thoughts only", aiErr);
+          // Don't block app if AI fails
+        }
       }
-
-      // Fetch AI Layer
-      try {
-        const aiData = await geminiService.generateMockThoughts();
-        const aiThoughts: Thought[] = aiData.map((item, idx) => ({
-          id: `ai-${Date.now()}-${idx}`,
-          content: item.content || '',
-          type: item.type as ThoughtType || ThoughtType.WHISPER,
-          author: 'AI Whispers',
-          timestamp: Date.now(),
-          likes: Math.floor(Math.random() * 50),
-          echoes: Math.floor(Math.random() * 10),
-          x: Math.random() * 80 + 5,
-          y: Math.random() * 70 + 10,
-          fontSize: Math.floor(Math.random() * 12) + 14,
-          color: COLORS[Math.floor(Math.random() * COLORS.length)]
-        }));
-        
-        setThoughts(prev => [...prev, ...aiThoughts]);
-      } catch (aiErr) {
-        console.warn("AI generation failed, continuing with DB thoughts only", aiErr);
-        // Don't block app if AI fails
-      }
-
     } catch (err: any) {
       console.error("Data load failed:", err);
       setError(err.message || "无法连接到云端，请检查网络连接");

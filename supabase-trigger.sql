@@ -12,6 +12,7 @@ DECLARE
 BEGIN
   -- 生成基础 username
   base_username := COALESCE(
+    NEW.raw_user_meta_data->>'username',
     -- 提取 email 的 @ 前部分
     CASE 
       WHEN NEW.email IS NOT NULL AND POSITION('@' IN NEW.email) > 0 

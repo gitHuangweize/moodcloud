@@ -18,6 +18,18 @@ export const ensureUserProfile = async (user: any): Promise<User | null> => {
 
     // 如果记录已存在，直接返回
     if (existingUser) {
+      // 检查现有记录的用户名是否还是旧的邮箱前缀格式
+      const metadataUsername = user.user_metadata?.username;
+      if (metadataUsername && existingUser.username !== metadataUsername) {
+        const { error: updateError } = await supabase
+          .from('users')
+          .update({ username: metadataUsername })
+          .eq('id', user.id);
+        
+        if (!updateError) {
+          existingUser.username = metadataUsername;
+        }
+      }
       return {
         id: existingUser.id,
         username: existingUser.username,
@@ -26,8 +38,9 @@ export const ensureUserProfile = async (user: any): Promise<User | null> => {
     }
 
     // 如果不存在，创建新记录
-    // 处理 username 唯一性冲突
-    let baseUsername = user.user_metadata?.username || 
+    const metadataUsername = user.user_metadata?.username;
+    
+    let baseUsername = metadataUsername || 
                       user.email?.split('@')[0] || 
                       `user_${user.id.substring(0, 8)}`;
     

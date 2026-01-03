@@ -19,10 +19,13 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
   const [showVerificationSent, setShowVerificationSent] = useState(false);
   const [registeredEmail, setRegisteredEmail] = useState('');
 
-  const authUserToAppUser = (u: any): User => ({
-    id: u.id,
-    username: u.user_metadata?.username || u.email?.split('@')?.[0] || '用户',
-  });
+  const authUserToAppUser = (u: any): User => {
+    const metadataUsername = u.user_metadata?.username;
+    return {
+      id: u.id,
+      username: metadataUsername || u.email?.split('@')?.[0] || '用户',
+    };
+  };
 
   // 重新发送验证邮件
   const handleResendVerification = async () => {
@@ -95,6 +98,9 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
           // 需要验证邮箱
           setRegisteredEmail(email);
           setShowVerificationSent(true);
+          // 在注册成功但未验证时，也确保存储一次用户名到 metadata，
+          // 这样即使刷新页面后再验证，metadata 里也有数据。
+          // 但 signUp 已经传了 options.data，所以这里主要是等待用户去验证。
           return;
         }
         // 如果不需要验证（已确认），则直接登录
@@ -106,7 +112,10 @@ const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
             return;
           }
         }
-        setError('注册成功，但需要验证邮箱后才能登录');
+        // 只有在明确需要验证且还没显示验证界面时才报错
+        if (!showVerificationSent) {
+          setError('注册成功，请检查邮箱完成验证后登录');
+        }
       } catch (err: any) {
         setError(err?.message || '注册失败，请稍后重试');
       }

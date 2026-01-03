@@ -132,3 +132,93 @@ $$;
 
 GRANT EXECUTE ON FUNCTION public.increment_thought_likes(uuid) TO anon;
 GRANT EXECUTE ON FUNCTION public.increment_thought_likes(uuid) TO authenticated;
+
+CREATE TABLE IF NOT EXISTS public.likes (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  thought_id uuid NOT NULL REFERENCES public.thoughts(id) ON DELETE CASCADE,
+  user_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  created_at timestamp with time zone DEFAULT now()
+);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'likes_thought_id_user_id_key'
+  ) THEN
+    ALTER TABLE public.likes
+      ADD CONSTRAINT likes_thought_id_user_id_key UNIQUE (thought_id, user_id);
+  END IF;
+END $$;
+
+CREATE INDEX IF NOT EXISTS idx_likes_thought_id ON public.likes(thought_id);
+CREATE INDEX IF NOT EXISTS idx_likes_user_id ON public.likes(user_id);
+
+ALTER TABLE public.likes ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can view own likes" ON public.likes;
+DROP POLICY IF EXISTS "Users can create own likes" ON public.likes;
+DROP POLICY IF EXISTS "Users can delete own likes" ON public.likes;
+
+CREATE POLICY "Users can view own likes"
+  ON public.likes
+  FOR SELECT
+  USING (auth.role() = 'authenticated' AND auth.uid() = user_id);
+
+CREATE POLICY "Users can create own likes"
+  ON public.likes
+  FOR INSERT
+  WITH CHECK (auth.role() = 'authenticated' AND auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own likes"
+  ON public.likes
+  FOR DELETE
+  USING (auth.role() = 'authenticated' AND auth.uid() = user_id);
+
+DROP FUNCTION IF EXISTS public.toggle_thought_like(uuid);
+
+CREATE OR REPLACE FUNCTION public.toggle_thought_like(p_thought_id uuid)
+RETURNS TABLE(is_liked boolean, total_likes integer)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_user_id uuid;
+  v_liked boolean;
+  v_count integer;
+BEGIN
+  v_user_id := auth.uid();
+  IF v_user_id IS NULL THEN
+    RAISE EXCEPTION 'Not authenticated';
+  END IF;
+
+  IF EXISTS (
+    SELECT 1 FROM public.likes WHERE thought_id = p_thought_id AND user_id = v_user_id
+  ) THEN
+    DELETE FROM public.likes WHERE thought_id = p_thought_id AND user_id = v_user_id;
+    UPDATE public.thoughts
+      SET likes = GREATEST(COALESCE(likes, 0) - 1, 0)
+      WHERE id = p_thought_id
+      RETURNING likes INTO v_count;
+    v_liked := false;
+    RETURN QUERY SELECT v_liked, v_count;
+    RETURN;
+  ELSE
+    INSERT INTO public.likes (thought_id, user_id)
+      VALUES (p_thought_id, v_user_id)
+      ON CONFLICT (thought_id, user_id) DO NOTHING;
+    UPDATE public.thoughts
+      SET likes = COALESCE(likes, 0) + 1
+      WHERE id = p_thought_id
+      RETURNING likes INTO v_count;
+    v_liked := true;
+    RETURN QUERY SELECT v_liked, v_count;
+    RETURN;
+  END IF;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.toggle_thought_like(uuid) FROM anon;
+GRANT EXECUTE ON FUNCTION public.toggle_thought_like(uuid) TO authenticated;
