@@ -218,32 +218,35 @@ const App: React.FC = () => {
   };
 
   const handleLike = async (id: string) => {
-    // Find the thought and increment likes
+    if (!currentUser) {
+      setShowAuthModal(true);
+      return;
+    }
+
+    // Find the thought
     const thought = thoughts.find(t => t.id === id);
     if (thought) {
-      if (likedThoughtIds.has(id)) {
-        return;
-      }
       try {
-        const newLikes = await supabaseStorageService.incrementThoughtLikes(id);
+        const { isLiked, totalLikes } = await supabaseStorageService.toggleThoughtLike(id);
         
-        setThoughts(prev => prev.map(t => t.id === id ? { ...t, likes: newLikes } : t));
+        setThoughts(prev => prev.map(t => t.id === id ? { ...t, likes: totalLikes } : t));
         if (selectedThought?.id === id) {
-          setSelectedThought(prev => prev ? { ...prev, likes: newLikes } : prev);
+          setSelectedThought(prev => prev ? { ...prev, likes: totalLikes } : prev);
         }
 
         setLikedThoughtIds(prev => {
           const next = new Set(prev);
-          next.add(id);
+          if (isLiked) {
+            next.add(id);
+          } else {
+            next.delete(id);
+          }
           localStorage.setItem('moodcloud_liked_thought_ids', JSON.stringify(Array.from(next)));
           return next;
         });
       } catch (err) {
-        console.error("Like failed:", err);
-        // Don't toast for likes usually, or maybe a subtle one? 
-        // Let's add toast if it fails hard?
-        // Actually, user expects instant feedback. Optimistic UI would be better but for now let's just handle error.
-        addToast("点赞失败，请稍后重试", 'error');
+        console.error("Toggle like failed:", err);
+        addToast("操作失败，请稍后重试", 'error');
       }
     }
   };
@@ -271,20 +274,41 @@ const App: React.FC = () => {
       addToast("评论已发布", 'success');
       
       // Update thought echo count as "engagement"
-      if (selectedThought.authorId && selectedThought.authorId === currentUser.id) {
-        try {
-          const updatedThought = await supabaseStorageService.updateThought(selectedThought.id, {
-            echoes: selectedThought.echoes + 1
-          });
-          setSelectedThought(updatedThought);
-          setThoughts(prev => prev.map(t => t.id === selectedThought.id ? updatedThought : t));
-        } catch (ignore) {
-          // Non-critical update
-        }
+      try {
+        const updatedThought = await supabaseStorageService.updateThought(selectedThought.id, {
+          echoes: selectedThought.echoes + 1
+        });
+        setSelectedThought(updatedThought);
+        setThoughts(prev => prev.map(t => t.id === selectedThought.id ? updatedThought : t));
+      } catch (ignore) {
+        // Non-critical update
       }
     } catch (err: any) {
       console.error("Add comment failed:", err);
       addToast("评论失败：" + (err.message || "未知错误"), 'error');
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    if (!selectedThought) return;
+    try {
+      await supabaseStorageService.deleteComment(commentId);
+      setComments(prev => prev.filter(c => c.id !== commentId));
+      addToast("评论已删除", 'success');
+
+      // Update thought echo count
+      try {
+        const updatedThought = await supabaseStorageService.updateThought(selectedThought.id, {
+          echoes: Math.max(0, selectedThought.echoes - 1)
+        });
+        setSelectedThought(updatedThought);
+        setThoughts(prev => prev.map(t => t.id === selectedThought.id ? updatedThought : t));
+      } catch (ignore) {
+        // Non-critical update
+      }
+    } catch (err: any) {
+      console.error("Delete comment failed:", err);
+      addToast("删除评论失败：" + (err.message || "未知错误"), 'error');
     }
   };
 
@@ -503,7 +527,18 @@ const App: React.FC = () => {
                     <div key={comment.id} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 animate-in slide-in-from-bottom-2 duration-300">
                       <div className="flex justify-between items-start mb-2">
                         <span className="text-sm font-bold text-indigo-600">{comment.author}</span>
-                        <span className="text-[10px] text-slate-400">{new Date(comment.timestamp).toLocaleTimeString()}</span>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-400">{new Date(comment.timestamp).toLocaleTimeString()}</span>
+                          {currentUser && comment.authorId === currentUser.id && (
+                            <button 
+                              onClick={() => handleDeleteComment(comment.id)}
+                              className="text-slate-300 hover:text-red-500 transition-colors"
+                              title="删除评论"
+                            >
+                              <X size={14} />
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <p className="text-sm text-slate-600 leading-relaxed">{comment.content}</p>
                     </div>

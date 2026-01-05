@@ -101,16 +101,24 @@ export const supabaseStorageService = {
     return true;
   },
 
-  async incrementThoughtLikes(id: string): Promise<number> {
+  async toggleThoughtLike(id: string): Promise<{ isLiked: boolean; totalLikes: number }> {
     const { data, error } = await supabase
-      .rpc('increment_thought_likes', { p_thought_id: id });
+      .rpc('toggle_thought_like', { p_thought_id: id });
 
     if (error) {
-      console.error('Error incrementing thought likes:', error);
+      console.error('Error toggling thought like:', error);
       throw error;
     }
 
-    return typeof data === 'number' ? data : 0;
+    if (!data || data.length === 0) {
+      throw new Error('No data returned from toggle_thought_like');
+    }
+
+    const result = data[0];
+    return {
+      isLiked: result.is_liked,
+      totalLikes: result.total_likes
+    };
   },
 
   // Users
@@ -177,16 +185,29 @@ export const supabaseStorageService = {
   async addComment(comment: Omit<Comment, 'id'>): Promise<Comment> {
     const { data, error } = await supabase
       .from('comments')
-      .insert([toSnakeCase(comment)])
+      .insert({
+        thought_id: comment.thoughtId,
+        author: comment.author,
+        author_id: comment.authorId,
+        content: comment.content,
+        timestamp: comment.timestamp
+      })
       .select()
       .single();
-    
+
     if (error) {
       console.error('Error adding comment:', error);
       throw error;
     }
-    
-    return toCamelCase(data);
+
+    return {
+      id: data.id,
+      thoughtId: data.thought_id,
+      authorId: data.author_id,
+      author: data.author,
+      content: data.content,
+      timestamp: data.timestamp
+    };
   },
 
   async deleteComment(id: string): Promise<boolean> {
@@ -194,12 +215,12 @@ export const supabaseStorageService = {
       .from('comments')
       .delete()
       .eq('id', id);
-    
+
     if (error) {
       console.error('Error deleting comment:', error);
       throw error;
     }
-    
+
     return true;
   }
 };
