@@ -32,6 +32,7 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [profileUser, setProfileUser] = useState<User | null>(null);
 
   // Toast Helper
   const addToast = useCallback((message: string, type: ToastType = 'info') => {
@@ -324,8 +325,24 @@ const App: React.FC = () => {
   };
 
   const handleMyClick = () => {
-    if (currentUser) setShowProfile(true);
-    else setShowAuthModal(true);
+    if (currentUser) {
+      setProfileUser(currentUser);
+      setShowProfile(true);
+    } else {
+      setShowAuthModal(true);
+    }
+  };
+
+  const handleAuthorClick = async (authorId: string) => {
+    if (!authorId) return;
+    try {
+      const user = await supabaseStorageService.getUserById(authorId);
+      setProfileUser(user);
+      setShowProfile(true);
+    } catch (err) {
+      console.error("Failed to load author profile:", err);
+      addToast("无法加载该用户资料", 'error');
+    }
   };
 
   const canManageSelectedThought =
@@ -509,7 +526,12 @@ const App: React.FC = () => {
                 </p>
               )}
               <div className="flex items-center justify-between text-xs text-slate-400 border-b border-slate-50 pb-4">
-                <span>由 {selectedThought.author} 发布</span>
+                <button 
+                  onClick={() => selectedThought.authorId && handleAuthorClick(selectedThought.authorId)}
+                  className="hover:text-indigo-600 transition-colors"
+                >
+                  由 {selectedThought.author} 发布
+                </button>
                 <span>{new Date(selectedThought.timestamp).toLocaleString()}</span>
               </div>
             </div>
@@ -607,11 +629,12 @@ const App: React.FC = () => {
       )}
 
       {/* Profile Page */}
-      {showProfile && currentUser && (
+      {showProfile && profileUser && (
         <ProfileView 
-          user={currentUser}
+          user={profileUser}
+          currentUser={currentUser}
           thoughts={thoughts}
-          onClose={() => setShowProfile(false)}
+          onClose={() => { setShowProfile(false); setProfileUser(null); }}
           onLogout={handleLogout}
           onSelectThought={openThoughtFromProfile}
           onDeleteThoughts={deleteThoughtsFromProfile}

@@ -34,4 +34,5 @@ export interface User {
   username: string;
   password?: string; // Only for local storage simulation
   avatar?: string;
+  createdAt?: string;
 }

@@ -166,6 +166,35 @@ export const supabaseStorageService = {
     return toCamelCase(data);
   },
 
+  async getUserById(id: string): Promise<User> {
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', id)
+      .single();
+    
+    if (error) {
+      console.error('Error fetching user by id:', error);
+      throw error;
+    }
+    
+    return toCamelCase(data);
+  },
+
+  async getLikedThoughtIds(userId: string): Promise<string[]> {
+    const { data, error } = await supabase
+      .from('likes')
+      .select('thought_id')
+      .eq('user_id', userId);
+    
+    if (error) {
+      console.error('Error fetching liked thought ids:', error);
+      throw error;
+    }
+    
+    return data.map((item: any) => item.thought_id);
+  },
+
   // Comments
   async getComments(thoughtId: string): Promise<Comment[]> {
     const { data, error } = await supabase
