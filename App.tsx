@@ -22,6 +22,10 @@ const App: React.FC = () => {
 
   const [selectedThought, setSelectedThought] = useState<Thought | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
+  const [commentsPage, setCommentsPage] = useState(0);
+  const [totalComments, setTotalComments] = useState(0);
+  const [hasMoreComments, setHasMoreComments] = useState(false);
+  const [isLoadingComments, setIsLoadingComments] = useState(false);
   const [newCommentText, setNewCommentText] = useState('');
   const [isRefining, setIsRefining] = useState(false);
   const [isEditingThought, setIsEditingThought] = useState(false);
@@ -148,20 +152,63 @@ const App: React.FC = () => {
   }, [loadData]);
 
   // Load comments when a thought is selected
+  const loadComments = useCallback(async (thoughtId: string, page: number = 0, isLoadMore: boolean = false) => {
+    setIsLoadingComments(true);
+    try {
+      const { data, hasMore, totalCount } = await supabaseStorageService.getComments(thoughtId, page);
+      if (isLoadMore) {
+        setComments(prev => [...prev, ...data]);
+      } else {
+        setComments(data);
+        // 校准详情页显示的评论数
+        setTotalComments(totalCount);
+        
+        // 如果数据库中的 echoes 计数与实际评论数不符，进行同步
+        // 注意：此处我们需要使用最新的 totalCount 来更新 thoughts 列表
+        setThoughts(prev => prev.map(t => {
+          if (t.id === thoughtId && t.echoes !== totalCount) {
+            // 异步在后台更新数据库
+            supabaseStorageService.updateThought(thoughtId, { echoes: totalCount }).catch(e => {
+              console.warn("Failed to sync echoes count to DB:", e);
+            });
+            return { ...t, echoes: totalCount };
+          }
+          return t;
+        }));
+
+        // 同时更新当前选中的 thought 对象
+        setSelectedThought(prev => {
+          if (prev && prev.id === thoughtId && prev.echoes !== totalCount) {
+            return { ...prev, echoes: totalCount };
+          }
+          return prev;
+        });
+      }
+      setHasMoreComments(hasMore);
+      setCommentsPage(page);
+    } catch (err) {
+      console.error("Failed to load comments:", err);
+      addToast("评论加载失败", 'error');
+    } finally {
+      setIsLoadingComments(false);
+    }
+  }, [addToast]);
+
   useEffect(() => {
     if (selectedThought) {
-      const loadComments = async () => {
-        try {
-          const comments = await supabaseStorageService.getComments(selectedThought.id);
-          setComments(comments);
-        } catch (err) {
-          console.error("Failed to load comments:", err);
-          addToast("评论加载失败", 'error');
-        }
-      };
-      loadComments();
+      loadComments(selectedThought.id, 0, false);
+    } else {
+      setComments([]);
+      setCommentsPage(0);
+      setHasMoreComments(false);
     }
-  }, [selectedThought, addToast]);
+  }, [selectedThought, loadComments]);
+
+  const handleLoadMoreComments = () => {
+    if (selectedThought && !isLoadingComments && hasMoreComments) {
+      loadComments(selectedThought.id, commentsPage + 1, true);
+    }
+  };
 
   const handlePostThought = async (content: string, _isRefined?: boolean) => {
     if (!currentUser) {
@@ -270,14 +317,16 @@ const App: React.FC = () => {
 
     try {
       const savedComment = await supabaseStorageService.addComment(newComment);
-      setComments(prev => [...prev, savedComment]);
+      setComments(prev => [savedComment, ...prev]); // 将新评论添加到开头，因为是按时间倒序排列
+      setTotalComments(prev => prev + 1);
       setNewCommentText('');
       addToast("评论已发布", 'success');
       
       // Update thought echo count as "engagement"
       try {
+        const updatedCount = totalComments + 1;
         const updatedThought = await supabaseStorageService.updateThought(selectedThought.id, {
-          echoes: selectedThought.echoes + 1
+          echoes: updatedCount
         });
         setSelectedThought(updatedThought);
         setThoughts(prev => prev.map(t => t.id === selectedThought.id ? updatedThought : t));
@@ -295,12 +344,14 @@ const App: React.FC = () => {
     try {
       await supabaseStorageService.deleteComment(commentId);
       setComments(prev => prev.filter(c => c.id !== commentId));
+      setTotalComments(prev => Math.max(0, prev - 1));
       addToast("评论已删除", 'success');
 
       // Update thought echo count
       try {
+        const updatedCount = Math.max(0, totalComments - 1);
         const updatedThought = await supabaseStorageService.updateThought(selectedThought.id, {
-          echoes: Math.max(0, selectedThought.echoes - 1)
+          echoes: updatedCount
         });
         setSelectedThought(updatedThought);
         setThoughts(prev => prev.map(t => t.id === selectedThought.id ? updatedThought : t));
@@ -539,9 +590,9 @@ const App: React.FC = () => {
             {/* Comments List */}
             <div className="flex-1 overflow-y-auto px-8 py-4 bg-slate-50/50">
               <h4 className="text-sm font-bold text-slate-500 mb-4 flex items-center gap-2">
-                <MessageCircle size={16} /> 评论 ({comments.length})
+                <MessageCircle size={16} /> 评论 ({totalComments})
               </h4>
-              {comments.length === 0 ? (
+              {comments.length === 0 && !isLoadingComments ? (
                 <p className="text-sm text-slate-400 italic text-center py-8">暂时还没有人评论，快来抢沙发...</p>
               ) : (
                 <div className="space-y-4">
@@ -565,6 +616,21 @@ const App: React.FC = () => {
                       <p className="text-sm text-slate-600 leading-relaxed">{comment.content}</p>
                     </div>
                   ))}
+                  
+                  {isLoadingComments && (
+                    <div className="py-4 text-center">
+                      <div className="inline-block w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin"></div>
+                    </div>
+                  )}
+
+                  {hasMoreComments && !isLoadingComments && (
+                    <button 
+                      onClick={handleLoadMoreComments}
+                      className="w-full py-2 text-sm text-indigo-600 hover:text-indigo-700 font-medium transition-colors"
+                    >
+                      查看更多评论
+                    </button>
+                  )}
                 </div>
               )}
             </div>

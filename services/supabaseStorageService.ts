@@ -196,19 +196,27 @@ export const supabaseStorageService = {
   },
 
   // Comments
-  async getComments(thoughtId: string): Promise<Comment[]> {
-    const { data, error } = await supabase
+  async getComments(thoughtId: string, page: number = 0, pageSize: number = 10): Promise<{ data: Comment[], hasMore: boolean, totalCount: number }> {
+    const from = page * pageSize;
+    const to = from + pageSize;
+
+    const { data, error, count } = await supabase
       .from('comments')
-      .select('*')
+      .select('*', { count: 'exact' })
       .eq('thought_id', thoughtId)
-      .order('timestamp', { ascending: false });
+      .order('timestamp', { ascending: false })
+      .range(from, to - 1);
     
     if (error) {
       console.error('Error fetching comments:', error);
       throw error;
     }
     
-    return toCamelCase(data) || [];
+    const comments = toCamelCase(data) || [];
+    const totalCount = count || 0;
+    const hasMore = from + comments.length < totalCount;
+
+    return { data: comments, hasMore, totalCount };
   },
 
   async addComment(comment: Omit<Comment, 'id'>): Promise<Comment> {

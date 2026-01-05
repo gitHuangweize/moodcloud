@@ -220,5 +220,33 @@ BEGIN
 END;
 $$;
 
-REVOKE EXECUTE ON FUNCTION public.toggle_thought_like(uuid) FROM anon;
-GRANT EXECUTE ON FUNCTION public.toggle_thought_like(uuid) TO authenticated;
+
+-- 6) Automatically sync echoes (comment count) using triggers
+CREATE OR REPLACE FUNCTION public.sync_thought_echoes()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+    IF (TG_OP = 'INSERT') THEN
+        UPDATE public.thoughts
+        SET echoes = (SELECT count(*) FROM public.comments WHERE thought_id = NEW.thought_id)
+        WHERE id = NEW.thought_id;
+    ELSIF (TG_OP = 'DELETE') THEN
+        UPDATE public.thoughts
+        SET echoes = (SELECT count(*) FROM public.comments WHERE thought_id = OLD.thought_id)
+        WHERE id = OLD.thought_id;
+    END IF;
+    RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trigger_sync_thought_echoes ON public.comments;
+CREATE TRIGGER trigger_sync_thought_echoes
+AFTER INSERT OR DELETE ON public.comments
+FOR EACH ROW
+EXECUTE FUNCTION public.sync_thought_echoes();
+
+-- Initial sync for existing data
+UPDATE public.thoughts t
+SET echoes = (SELECT count(*) FROM public.comments c WHERE c.thought_id = t.id);
