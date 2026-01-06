@@ -12,6 +12,7 @@ interface ProfileViewProps {
   onLogout: () => void;
   onSelectThought: (thought: Thought) => void;
   onDeleteThoughts: (ids: string[]) => Promise<void>;
+  onFilterAuthor?: (authorId: string) => void;
 }
 
 const ProfileView: React.FC<ProfileViewProps> = ({ 
@@ -21,7 +22,8 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   onClose, 
   onLogout, 
   onSelectThought, 
-  onDeleteThoughts 
+  onDeleteThoughts,
+  onFilterAuthor
 }) => {
   const isOwnProfile = currentUser?.id === user.id;
   const [activeTab, setActiveTab] = useState<'thoughts' | 'likes'>(isOwnProfile ? 'thoughts' : 'thoughts');
@@ -105,6 +107,14 @@ const ProfileView: React.FC<ProfileViewProps> = ({
               <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
                 <span className="flex items-center gap-1"><Calendar size={12} /> {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : '未知'} 加入</span>
                 <span className="flex items-center gap-1 text-pink-500 font-medium"><Award size={12} /> 获得 {totalReceivedLikes} 次赞同</span>
+                {!isOwnProfile && onFilterAuthor && (
+                  <button 
+                    onClick={() => onFilterAuthor(user.id)}
+                    className="flex items-center gap-1 text-indigo-600 hover:text-indigo-700 font-bold transition-colors ml-2 px-2 py-0.5 bg-indigo-50 rounded-lg"
+                  >
+                    筛选 TA 的思绪
+                  </button>
+                )}
               </div>
             </div>
           </div>

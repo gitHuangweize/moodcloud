@@ -33,6 +33,12 @@ const App: React.FC = () => {
   const [likedThoughtIds, setLikedThoughtIds] = useState<Set<string>>(new Set());
   const [refreshKey, setRefreshKey] = useState(0); // 用于触发换一批
   
+  // Search & Filter States
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [selectedType, setSelectedType] = useState<string>('ALL');
+  const [filterAuthorId, setFilterAuthorId] = useState<string | null>(null);
+  const [filterAuthorName, setFilterAuthorName] = useState<string | undefined>(undefined);
+  
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
@@ -104,18 +110,22 @@ const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
     try {
-      const savedThoughts = await supabaseStorageService.getThoughts();
+      const filters = {
+        keyword: searchKeyword.trim() || undefined,
+        type: selectedType !== 'ALL' ? selectedType : undefined,
+        authorId: filterAuthorId || undefined
+      };
+      
+      const savedThoughts = await supabaseStorageService.getThoughts(filters);
       if (savedThoughts.length > 0) {
         setThoughts(savedThoughts);
       } else {
         setThoughts([]);
       }
       
-      // Fetch supplementary AI thoughts only if needed or as background
-      // For now, let's mix them in if we have few thoughts or just always
-      // To match original logic:
-      if (savedThoughts.length === 0) {
-          // Fetch AI Layer
+      // Fetch supplementary AI thoughts only if no filters are applied and no thoughts found
+      const isFiltered = !!(filters.keyword || filters.type || filters.authorId);
+      if (savedThoughts.length === 0 && !isFiltered) {
         try {
           const aiData = await geminiService.generateMockThoughts();
           const aiThoughts: Thought[] = aiData.map((item, idx) => ({
@@ -145,11 +155,14 @@ const App: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [addToast]);
+  }, [addToast, searchKeyword, selectedType, filterAuthorId]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    const timer = setTimeout(() => {
+      loadData();
+    }, 300); // Add debounce for keyword search
+    return () => clearTimeout(timer);
+  }, [loadData, searchKeyword, selectedType, filterAuthorId]);
 
   // Load comments when a thought is selected
   const loadComments = useCallback(async (thoughtId: string, page: number = 0, isLoadMore: boolean = false) => {
@@ -386,14 +399,24 @@ const App: React.FC = () => {
 
   const handleAuthorClick = async (authorId: string) => {
     if (!authorId) return;
-    try {
-      const user = await supabaseStorageService.getUserById(authorId);
-      setProfileUser(user);
-      setShowProfile(true);
-    } catch (err) {
-      console.error("Failed to load author profile:", err);
-      addToast("无法加载该用户资料", 'error');
+    
+    // Find author name from existing thoughts or fetch it
+    const authorThought = thoughts.find(t => t.authorId === authorId);
+    if (authorThought) {
+      setFilterAuthorName(authorThought.author);
+    } else {
+      try {
+        const user = await supabaseStorageService.getUserById(authorId);
+        setFilterAuthorName(user.username);
+      } catch (err) {
+        setFilterAuthorName('未知作者');
+      }
     }
+
+    // Set filter to this author and close detail modal
+    setFilterAuthorId(authorId);
+    setSelectedThought(null);
+    addToast("已筛选该作者的思绪", 'info');
   };
 
   const canManageSelectedThought =
@@ -491,6 +514,15 @@ const App: React.FC = () => {
         currentUser={currentUser} 
         onMyClick={handleMyClick} 
         onRefreshClick={handleRefreshBatch}
+        searchKeyword={searchKeyword}
+        onSearchChange={setSearchKeyword}
+        selectedType={selectedType}
+        onTypeChange={setSelectedType}
+        filterAuthorName={filterAuthorName}
+        onClearAuthorFilter={() => {
+          setFilterAuthorId(null);
+          setFilterAuthorName(undefined);
+        }}
       />
       
       <main className="pt-16 pb-32 h-full flex flex-col justify-center">
@@ -579,9 +611,14 @@ const App: React.FC = () => {
               <div className="flex items-center justify-between text-xs text-slate-400 border-b border-slate-50 pb-4">
                 <button 
                   onClick={() => selectedThought.authorId && handleAuthorClick(selectedThought.authorId)}
-                  className="hover:text-indigo-600 transition-colors"
+                  className="group flex items-center gap-1 hover:text-indigo-600 transition-all"
+                  title="查看该作者的所有思绪"
                 >
-                  由 {selectedThought.author} 发布
+                  <span className="opacity-60 group-hover:opacity-100 transition-opacity">由</span>
+                  <span className="font-bold underline underline-offset-4 decoration-indigo-200 group-hover:decoration-indigo-500 transition-all">
+                    {selectedThought.author}
+                  </span>
+                  <span className="opacity-60 group-hover:opacity-100 transition-opacity">发布</span>
                 </button>
                 <span>{new Date(selectedThought.timestamp).toLocaleString()}</span>
               </div>
@@ -704,6 +741,7 @@ const App: React.FC = () => {
           onLogout={handleLogout}
           onSelectThought={openThoughtFromProfile}
           onDeleteThoughts={deleteThoughtsFromProfile}
+          onFilterAuthor={handleAuthorClick}
         />
       )}
 

@@ -1,15 +1,31 @@
 
 import React from 'react';
-import { User as UserIcon, Cloud, Info, LogIn, RefreshCw } from 'lucide-react';
-import { User } from '../types';
+import { User as UserIcon, Cloud, Info, LogIn, RefreshCw, Search, X, Filter } from 'lucide-react';
+import { User, ThoughtType } from '../types';
 
 interface NavBarProps {
   currentUser: User | null;
   onMyClick: () => void;
   onRefreshClick?: () => void;
+  searchKeyword: string;
+  onSearchChange: (val: string) => void;
+  selectedType: string;
+  onTypeChange: (val: string) => void;
+  filterAuthorName?: string;
+  onClearAuthorFilter: () => void;
 }
 
-const NavBar: React.FC<NavBarProps> = ({ currentUser, onMyClick, onRefreshClick }) => {
+const NavBar: React.FC<NavBarProps> = ({ 
+  currentUser, 
+  onMyClick, 
+  onRefreshClick,
+  searchKeyword,
+  onSearchChange,
+  selectedType,
+  onTypeChange,
+  filterAuthorName,
+  onClearAuthorFilter
+}) => {
   return (
     <nav className="fixed top-0 left-0 right-0 h-16 flex items-center justify-between px-8 z-50 bg-white/10 backdrop-blur-md border-b border-white/20 select-none">
       <div className="flex items-center gap-2">
@@ -19,6 +35,53 @@ const NavBar: React.FC<NavBarProps> = ({ currentUser, onMyClick, onRefreshClick 
         <h1 className="text-xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-purple-600">
           MoodCloud
         </h1>
+      </div>
+
+      <div className="flex-1 max-w-md mx-4 hidden sm:flex items-center gap-2">
+        <div className="relative flex-1 group">
+          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" />
+          <input 
+            type="text"
+            value={searchKeyword}
+            onChange={(e) => onSearchChange(e.target.value)}
+            placeholder="搜索思绪内容..."
+            className="w-full pl-10 pr-10 py-2 bg-slate-100/50 border-none rounded-full text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition-all"
+          />
+          {searchKeyword && (
+            <button 
+              onClick={() => onSearchChange('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+            >
+              <X size={16} />
+            </button>
+          )}
+        </div>
+
+        <div className="flex items-center gap-1 bg-slate-100/50 p-1 rounded-full border border-slate-200/50">
+          <select 
+            value={selectedType}
+            onChange={(e) => onTypeChange(e.target.value)}
+            className="bg-transparent text-xs font-bold text-slate-600 outline-none px-2 cursor-pointer"
+          >
+            <option value="ALL">全部类型</option>
+            {Object.values(ThoughtType).map(type => (
+              <option key={type} value={type}>{type}</option>
+            ))}
+          </select>
+        </div>
+
+        {filterAuthorName && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 text-indigo-600 rounded-full text-xs font-bold border border-indigo-100 animate-in fade-in slide-in-from-left-2 whitespace-nowrap">
+            <UserIcon size={14} />
+            <span>作者: {filterAuthorName}</span>
+            <button 
+              onClick={onClearAuthorFilter} 
+              className="hover:text-indigo-800 p-0.5 hover:bg-indigo-100 rounded-full transition-colors"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-4">
