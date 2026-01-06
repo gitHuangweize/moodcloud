@@ -37,3 +37,17 @@ export interface User {
   avatar?: string;
   createdAt?: string;
 }
+
+export type NotificationType = 'LIKE' | 'COMMENT';
+
+export interface AppNotification {
+  id: string;
+  receiverId: string;
+  senderId: string;
+  senderName?: string;
+  type: NotificationType;
+  thoughtId: string;
+  content?: string;
+  isRead: boolean;
+  createdAt: string;
+}

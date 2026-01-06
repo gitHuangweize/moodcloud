@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { User as UserIcon, Cloud, Info, LogIn, RefreshCw, Search, X, Filter } from 'lucide-react';
+import { User as UserIcon, Cloud, Info, LogIn, RefreshCw, Search, X, Filter, Bell } from 'lucide-react';
 import { User, ThoughtType } from '../types';
 
 interface NavBarProps {
@@ -13,6 +13,8 @@ interface NavBarProps {
   onTypeChange: (val: string) => void;
   filterAuthorName?: string;
   onClearAuthorFilter: () => void;
+  unreadNotifications?: number;
+  onNotificationsClick?: () => void;
 }
 
 const NavBar: React.FC<NavBarProps> = ({ 
@@ -24,7 +26,9 @@ const NavBar: React.FC<NavBarProps> = ({
   selectedType,
   onTypeChange,
   filterAuthorName,
-  onClearAuthorFilter
+  onClearAuthorFilter,
+  unreadNotifications = 0,
+  onNotificationsClick
 }) => {
   return (
     <nav className="fixed top-0 left-0 right-0 h-16 flex items-center justify-between px-8 z-50 bg-white/10 backdrop-blur-md border-b border-white/20 select-none">
@@ -100,6 +104,21 @@ const NavBar: React.FC<NavBarProps> = ({
           <Info size={18} />
           <span>关于</span>
         </button>
+
+        {currentUser && (
+          <button 
+            onClick={onNotificationsClick}
+            className="relative p-2 text-slate-500 hover:text-indigo-600 transition-colors"
+          >
+            <Bell size={22} />
+            {unreadNotifications > 0 && (
+              <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[10px] flex items-center justify-center rounded-full animate-pulse">
+                {unreadNotifications > 9 ? '9+' : unreadNotifications}
+              </span>
+            )}
+          </button>
+        )}
+        
         <button 
           onClick={onMyClick}
           className="px-4 py-2 rounded-full bg-white shadow-sm border border-slate-100 text-slate-600 text-sm font-semibold flex items-center gap-2 hover:shadow-md transition-all active:scale-95"

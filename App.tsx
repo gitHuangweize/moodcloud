@@ -7,18 +7,22 @@ import AuthModal from './components/AuthModal';
 import ProfileView from './components/ProfileView';
 import StatusMessage from './components/StatusMessage';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
-import { Thought, ThoughtType, User, Comment } from './types';
+import { Thought, ThoughtType, User, Comment, AppNotification } from './types';
 import { INITIAL_THOUGHTS, COLORS } from './constants';
 import { geminiService } from './services/geminiService';
 import { supabaseStorageService } from './services/supabaseStorageService';
 import { supabase } from './services/supabaseService';
-import { Heart, MessageCircle, X, Send, WifiOff, CloudOff, Inbox } from 'lucide-react';
+import { Heart, MessageCircle, X, Send, WifiOff, CloudOff, Inbox, Bell } from 'lucide-react';
 
 const App: React.FC = () => {
   const [thoughts, setThoughts] = useState<Thought[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
+
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   const [selectedThought, setSelectedThought] = useState<Thought | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
@@ -60,6 +64,83 @@ const App: React.FC = () => {
       id: u.id,
       username: metadataUsername || u.email?.split('@')?.[0] || '用户',
     };
+  };
+
+  const loadNotifications = useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      const data = await supabaseStorageService.getNotifications(currentUser.id);
+      setNotifications(data);
+      setUnreadCount(data.filter(n => !n.isRead).length);
+    } catch (err) {
+      console.error('Failed to load notifications:', err);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    if (currentUser) {
+      loadNotifications();
+
+      // Subscribe to Realtime notifications
+      const channel = supabase
+        .channel(`user-notifications-${currentUser.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'notifications',
+            filter: `receiver_id=eq.${currentUser.id}`,
+          },
+          (payload) => {
+            console.log('New notification received:', payload);
+            loadNotifications();
+            addToast('收到一条新提醒', 'info');
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    } else {
+      setNotifications([]);
+      setUnreadCount(0);
+    }
+  }, [currentUser, loadNotifications, addToast]);
+
+  const handleMarkAsRead = async (id: string) => {
+    try {
+      await supabaseStorageService.markNotificationAsRead(id);
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    } catch (err) {
+      console.error('Failed to mark notification as read:', err);
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    if (!currentUser) return;
+    try {
+      await supabaseStorageService.markAllNotificationsAsRead(currentUser.id);
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+      setUnreadCount(0);
+      addToast('已全部标记为已读', 'success');
+    } catch (err) {
+      console.error('Failed to mark all notifications as read:', err);
+    }
+  };
+
+  const handleNotificationClick = (notification: AppNotification) => {
+    handleMarkAsRead(notification.id);
+    const thought = thoughts.find(t => t.id === notification.thoughtId);
+    if (thought) {
+      setSelectedThought(thought);
+      setShowNotifications(false);
+    } else {
+      // If thought is not in current view, fetch it separately (could be implemented later)
+      addToast('思绪已不在当前视野中', 'info');
+    }
   };
 
   // Persist auth on refresh
@@ -563,7 +644,56 @@ const App: React.FC = () => {
           setFilterAuthorId(null);
           setFilterAuthorName(undefined);
         }}
+        unreadNotifications={unreadCount}
+        onNotificationsClick={() => setShowNotifications(!showNotifications)}
       />
+
+      {/* Notifications Modal/Dropdown */}
+      {showNotifications && (
+        <div className="fixed top-20 right-8 w-80 max-h-[70vh] bg-white rounded-3xl shadow-2xl border border-slate-100 z-[110] flex flex-col overflow-hidden animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="p-4 border-b border-slate-50 flex items-center justify-between bg-slate-50/50">
+            <h3 className="font-bold text-slate-700 flex items-center gap-2">
+              <Bell size={18} className="text-indigo-600" />
+              提醒通知
+            </h3>
+            {unreadCount > 0 && (
+              <button 
+                onClick={handleMarkAllAsRead}
+                className="text-xs text-indigo-600 hover:text-indigo-700 font-medium"
+              >
+                全部已读
+              </button>
+            )}
+          </div>
+          
+          <div className="flex-1 overflow-y-auto p-2">
+            {notifications.length === 0 ? (
+              <div className="py-12 text-center text-slate-400">
+                <Bell size={32} className="mx-auto mb-2 opacity-20" />
+                <p className="text-sm">暂无新提醒</p>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                {notifications.map(n => (
+                  <div 
+                    key={n.id}
+                    onClick={() => handleNotificationClick(n)}
+                    className={`p-3 rounded-2xl cursor-pointer transition-all ${n.isRead ? 'opacity-60 grayscale-[0.5] hover:bg-slate-50' : 'bg-indigo-50/50 hover:bg-indigo-50 border border-indigo-100/50'}`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-indigo-600">{n.senderName}</span>
+                      <span className="text-[10px] text-slate-400">{new Date(n.createdAt).toLocaleString()}</span>
+                    </div>
+                    <p className="text-sm text-slate-700 leading-relaxed">
+                      {n.type === 'LIKE' ? '点赞了你的思绪' : `评论了你：${n.content}`}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       
       <main className="pt-16 pb-32 h-full flex flex-col justify-center">
         {isLoading ? (

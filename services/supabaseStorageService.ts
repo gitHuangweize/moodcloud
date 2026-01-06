@@ -1,4 +1,4 @@
-import { Thought, User, Comment } from '../types';
+import { Thought, User, Comment, AppNotification, NotificationType } from '../types';
 import { supabase } from './supabaseService';
 
 // Helper to convert camelCase to snake_case
@@ -276,5 +276,53 @@ export const supabaseStorageService = {
     }
 
     return true;
+  },
+
+  // Notifications
+  async getNotifications(userId: string): Promise<AppNotification[]> {
+    const { data, error } = await supabase
+      .from('notifications')
+      .select(`
+        *,
+        sender:users!notifications_sender_id_fkey(username)
+      `)
+      .eq('receiver_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    if (error) {
+      console.error('Error fetching notifications:', error);
+      throw error;
+    }
+
+    return (data || []).map((n: any) => ({
+      ...toCamelCase(n),
+      senderName: n.sender?.username || '未知用户'
+    }));
+  },
+
+  async markNotificationAsRead(id: string): Promise<void> {
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('id', id);
+
+    if (error) {
+      console.error('Error marking notification as read:', error);
+      throw error;
+    }
+  },
+
+  async markAllNotificationsAsRead(userId: string): Promise<void> {
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('receiver_id', userId)
+      .eq('is_read', false);
+
+    if (error) {
+      console.error('Error marking all notifications as read:', error);
+      throw error;
+    }
   }
 };

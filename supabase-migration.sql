@@ -256,3 +256,83 @@ ALTER TABLE thoughts ADD COLUMN IF NOT EXISTS tags text[] DEFAULT '{}';
 
 -- Create an index for tags column to improve performance
 CREATE INDEX IF NOT EXISTS idx_thoughts_tags ON thoughts USING GIN (tags);
+
+-- 1) Create notifications table
+CREATE TABLE IF NOT EXISTS public.notifications (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  receiver_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  sender_id uuid NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+  type text NOT NULL, -- 'LIKE' or 'COMMENT'
+  thought_id uuid NOT NULL REFERENCES public.thoughts(id) ON DELETE CASCADE,
+  content text, -- Preview of comment or thought
+  is_read boolean DEFAULT false,
+  created_at timestamp with time zone DEFAULT now()
+);
+
+-- Enable RLS
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+
+-- Policies for notifications
+DROP POLICY IF EXISTS "Users can view own notifications" ON public.notifications;
+DROP POLICY IF EXISTS "Users can update own notifications" ON public.notifications;
+
+CREATE POLICY "Users can view own notifications"
+  ON public.notifications
+  FOR SELECT
+  USING (auth.uid() = receiver_id);
+
+CREATE POLICY "Users can update own notifications"
+  ON public.notifications
+  FOR UPDATE
+  USING (auth.uid() = receiver_id);
+
+-- 2) Trigger for Comment Notifications
+CREATE OR REPLACE FUNCTION public.handle_comment_notification()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_thought_author_id uuid;
+BEGIN
+  -- Find the author of the thought
+  SELECT author_id INTO v_thought_author_id FROM public.thoughts WHERE id = NEW.thought_id;
+  
+  -- Only create notification if the commenter is not the author
+  IF v_thought_author_id IS NOT NULL AND v_thought_author_id != NEW.author_id THEN
+    INSERT INTO public.notifications (receiver_id, sender_id, type, thought_id, content)
+    VALUES (v_thought_author_id, NEW.author_id, 'COMMENT', NEW.thought_id, NEW.content);
+  END IF;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trigger_comment_notification ON public.comments;
+CREATE TRIGGER trigger_comment_notification
+  AFTER INSERT ON public.comments
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_comment_notification();
+
+-- 3) Trigger for Like Notifications
+CREATE OR REPLACE FUNCTION public.handle_like_notification()
+RETURNS TRIGGER AS $$
+DECLARE
+  v_thought_author_id uuid;
+BEGIN
+  -- Find the author of the thought
+  SELECT author_id INTO v_thought_author_id FROM public.thoughts WHERE id = NEW.thought_id;
+  
+  -- Only create notification if the liker is not the author
+  IF v_thought_author_id IS NOT NULL AND v_thought_author_id != NEW.user_id THEN
+    INSERT INTO public.notifications (receiver_id, sender_id, type, thought_id)
+    VALUES (v_thought_author_id, NEW.user_id, 'LIKE', NEW.thought_id);
+  END IF;
+  
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trigger_like_notification ON public.likes;
+CREATE TRIGGER trigger_like_notification
+  AFTER INSERT ON public.likes
+  FOR EACH ROW
+  EXECUTE FUNCTION public.handle_like_notification();
+
