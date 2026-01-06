@@ -250,3 +250,9 @@ EXECUTE FUNCTION public.sync_thought_echoes();
 -- Initial sync for existing data
 UPDATE public.thoughts t
 SET echoes = (SELECT count(*) FROM public.comments c WHERE c.thought_id = t.id);
+
+-- Add tags column to thoughts table
+ALTER TABLE thoughts ADD COLUMN IF NOT EXISTS tags text[] DEFAULT '{}';
+
+-- Create an index for tags column to improve performance
+CREATE INDEX IF NOT EXISTS idx_thoughts_tags ON thoughts USING GIN (tags);

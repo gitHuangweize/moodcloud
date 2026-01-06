@@ -42,7 +42,7 @@ const toCamelCase = (obj: any): any => {
 
 export const supabaseStorageService = {
   // Thoughts
-  async getThoughts(filters?: { keyword?: string; type?: string; authorId?: string }): Promise<Thought[]> {
+  async getThoughts(filters?: { keyword?: string; type?: string; authorId?: string; tag?: string }): Promise<Thought[]> {
     let query = supabase
       .from('thoughts')
       .select('*');
@@ -57,6 +57,10 @@ export const supabaseStorageService = {
     
     if (filters?.authorId) {
       query = query.eq('author_id', filters.authorId);
+    }
+
+    if (filters?.tag) {
+      query = query.contains('tags', [filters.tag]);
     }
 
     const { data, error } = await query.order('timestamp', { ascending: false });

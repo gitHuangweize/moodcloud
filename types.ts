@@ -27,6 +27,7 @@ export interface Thought {
   y: number;
   fontSize: number;
   color: string;
+  tags?: string[];
 }
 
 export interface User {

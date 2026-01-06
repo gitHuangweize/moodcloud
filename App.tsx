@@ -113,8 +113,14 @@ const App: React.FC = () => {
       const filters = {
         keyword: searchKeyword.trim() || undefined,
         type: selectedType !== 'ALL' ? selectedType : undefined,
-        authorId: filterAuthorId || undefined
+        authorId: filterAuthorId || undefined,
+        tag: searchKeyword.startsWith('#') ? searchKeyword.substring(1) : undefined
       };
+      
+      // If keyword is a tag, we might want to prioritize tag search or combine
+      if (filters.tag) {
+        filters.keyword = undefined; // Use precise tag search instead of ilike content
+      }
       
       const savedThoughts = await supabaseStorageService.getThoughts(filters);
       if (savedThoughts.length > 0) {
@@ -237,6 +243,11 @@ const App: React.FC = () => {
       console.warn("Classification failed, defaulting to WHISPER", err);
     }
 
+    // Extract tags using regex
+    const tagRegex = /#([^#\s]+)/g;
+    const matches = content.match(tagRegex);
+    const tags = matches ? Array.from(new Set(matches.map(m => m.substring(1)))) : [];
+
     const newThought: Omit<Thought, 'id'> = {
       content,
       type: thoughtType,
@@ -248,7 +259,8 @@ const App: React.FC = () => {
       x: Math.random() * 80 + 5,
       y: Math.random() * 70 + 10,
       fontSize: 22,
-      color: COLORS[Math.floor(Math.random() * COLORS.length)]
+      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      tags
     };
 
     try {
@@ -417,6 +429,34 @@ const App: React.FC = () => {
     setFilterAuthorId(authorId);
     setSelectedThought(null);
     addToast("已筛选该作者的思绪", 'info');
+  };
+
+  const handleTagClick = (tag: string) => {
+    setSearchKeyword(`#${tag}`);
+    setSelectedThought(null);
+    addToast(`正在筛选话题: #${tag}`, 'info');
+  };
+
+  const renderContentWithTags = (content: string) => {
+    const parts = content.split(/(#\S+)/g);
+    return parts.map((part, i) => {
+      if (part.startsWith('#')) {
+        const tagName = part.substring(1);
+        return (
+          <span 
+            key={i} 
+            onClick={(e) => {
+              e.stopPropagation();
+              handleTagClick(tagName);
+            }}
+            className="text-indigo-500 hover:text-indigo-700 cursor-pointer font-medium transition-colors"
+          >
+            {part}
+          </span>
+        );
+      }
+      return part;
+    });
   };
 
   const canManageSelectedThought =
@@ -605,7 +645,7 @@ const App: React.FC = () => {
                 </div>
               ) : (
                 <p className="text-2xl font-serif text-slate-800 leading-relaxed mb-6">
-                  「 {selectedThought.content} 」
+                  「 {renderContentWithTags(selectedThought.content)} 」
                 </p>
               )}
               <div className="flex items-center justify-between text-xs text-slate-400 border-b border-slate-50 pb-4">
