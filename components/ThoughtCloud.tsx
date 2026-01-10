@@ -21,8 +21,17 @@ const checkCollision = (rect1: any, rect2: any, padding = 1) => {
 };
 
 // 模拟 Canvas 测量文本宽度的辅助函数
+let measureContext: CanvasRenderingContext2D | null = null;
 const measureTextWidth = (text: string, fontSize: number) => {
-  // 中文字符/全角符号权重 1.1，英文字符/半角符号权重 0.6
+  if (!measureContext) {
+    const canvas = document.createElement('canvas');
+    measureContext = canvas.getContext('2d');
+  }
+  if (measureContext) {
+    measureContext.font = `${fontSize}px sans-serif`;
+    return measureContext.measureText(text).width;
+  }
+  // 回退逻辑
   const weight = text.split('').reduce((acc, char) => {
     return acc + (char.charCodeAt(0) > 255 ? 1.1 : 0.6);
   }, 0);
@@ -35,7 +44,8 @@ const ThoughtItem: React.FC<{
   onClick: (thought: Thought) => void;
   position: { x: number; y: number };
   isNew?: boolean;
-}> = React.memo(({ thought, onClick, position, isNew }) => {
+  onNewAnimationEnd?: () => void;
+}> = React.memo(({ thought, onClick, position, isNew, onNewAnimationEnd }) => {
   const handleClick = useCallback(() => {
     onClick(thought);
   }, [thought, onClick]);
@@ -43,24 +53,36 @@ const ThoughtItem: React.FC<{
   return (
     <div
       key={thought.id}
-      className={`absolute cursor-pointer select-none transition-all duration-700 hover:scale-110 active:scale-95 animate-float ${thought.color} whitespace-nowrap ${isNew ? 'z-10' : 'z-0'}`}
+      className={`absolute cursor-pointer select-none transition-all duration-700 hover:scale-110 active:scale-95 ${
+        isNew ? 'animate-new-thought z-20' : 'animate-float z-0'
+      } ${thought.color} whitespace-nowrap`}
       style={{
         left: `${position.x}%`,
         top: `${position.y}%`,
-        fontSize: isNew ? `${thought.fontSize + 4}px` : `${thought.fontSize}px`,
+        fontSize: isNew ? `${(thought.displayFontSize || thought.fontSize) + 8}px` : `${thought.displayFontSize || thought.fontSize}px`,
         opacity: isNew ? 1 : 0.8,
-        animationDelay: `${(thought.timestamp % 5000) / 1000}s`,
+        animationDelay: isNew ? '0s' : `${(thought.timestamp % 5000) / 1000}s`,
         filter: isNew 
-          ? 'drop-shadow(0 0 12px rgba(99, 102, 241, 0.4))' 
+          ? 'drop-shadow(0 0 15px rgba(251, 191, 36, 0.6))' 
           : 'drop-shadow(0 2px 4px rgba(0,0,0,0.05))',
         fontWeight: isNew ? 'bold' : 'normal',
+        padding: isNew ? '8px 16px' : '0px',
+        background: isNew ? 'rgba(255, 255, 255, 0.1)' : 'transparent',
+        borderRadius: '1rem',
+        backdropFilter: isNew ? 'blur(4px)' : 'none',
+        border: isNew ? '2px dashed rgba(251, 191, 36, 0.4)' : 'none',
       }}
       onClick={handleClick}
+      onAnimationEnd={isNew ? onNewAnimationEnd : undefined}
     >
       <div className="flex items-center gap-1">
-        {isNew && <Sparkles size={16} className="text-amber-400 animate-pulse" />}
+        {isNew && <Sparkles size={18} className="text-amber-400 animate-pulse" />}
         {thought.content}
-        {isNew && <span className="absolute -top-4 -right-2 bg-indigo-600 text-white text-[10px] px-1.5 py-0.5 rounded-full scale-75 animate-bounce">NEW</span>}
+        {isNew && (
+          <span className="absolute -top-3 -right-4 bg-gradient-to-r from-amber-400 to-orange-500 text-white text-[10px] px-2 py-0.5 rounded-full scale-90 font-black shadow-lg animate-bounce">
+            NEW
+          </span>
+        )}
       </div>
     </div>
   );
@@ -74,6 +96,7 @@ const ThoughtCloud: React.FC<ThoughtCloudProps> = ({ thoughts, onThoughtClick, m
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [touchDistance, setTouchDistance] = useState<number | null>(null);
   const [containerSize, setContainerSize] = useState({ width: 1200, height: 800 });
+  const [cachedPositions, setCachedPositions] = useState<Map<string, {x: number, y: number}>>(new Map());
 
   // 监听容器大小变化
   useEffect(() => {
@@ -90,92 +113,118 @@ const ThoughtCloud: React.FC<ThoughtCloudProps> = ({ thoughts, onThoughtClick, m
     return () => observer.disconnect();
   }, []);
 
-  // 1. 随机抽样与位置重计算（避免重叠）
-  // 引入位置缓存，避免每次渲染都重新计算
-  const [cachedPositions, setCachedPositions] = useState<Map<string, {x: number, y: number}>>(new Map());
-
+  // 1. 布局计算
   const displayedThoughts = useMemo(() => {
-    // 按照内容占据的预估面积从大到小排序，优先放置大词条
-    const sampled = (thoughts.length <= maxItems ? [...thoughts] : 
-      [...thoughts].sort(() => Math.random() - 0.5).slice(0, maxItems))
-      .sort((a, b) => {
-        const areaA = measureTextWidth(a.content, a.fontSize) * a.fontSize;
-        const areaB = measureTextWidth(b.content, b.fontSize) * b.fontSize;
-        return areaB - areaA;
-      });
+    // 识别新发布的思绪（30秒内）
+    const now = Date.now();
+    
+    // 对思绪进行分类排序：新发布的排在最前面，确保优先占位
+    const sortedThoughts = [...thoughts].sort((a, b) => {
+      const isANew = now - a.timestamp < 30000;
+      const isBNew = now - b.timestamp < 30000;
+      
+      if (isANew && !isBNew) return -1;
+      if (!isANew && isBNew) return 1;
+      
+      // 其次按面积排序，大词条优先占位
+      const areaA = measureTextWidth(a.content, a.fontSize) * a.fontSize;
+      const areaB = measureTextWidth(b.content, b.fontSize) * b.fontSize;
+      return areaB - areaA;
+    }).slice(0, maxItems);
 
     const placedItems: any[] = [];
     const { width: containerW, height: containerH } = containerSize;
     const newCachedPositions = new Map(cachedPositions);
     let hasNewPositions = false;
 
-    const result = sampled.map((t) => {
-      // 如果已有缓存位置，优先使用
-      if (newCachedPositions.has(t.id)) {
+    const result = sortedThoughts.map((t) => {
+      const isRecentlyPublished = now - t.timestamp < 30000;
+      
+      // 根据内容长度动态调整字号
+      let currentFontSize = t.fontSize;
+      if (t.content.length > 20) {
+        currentFontSize = Math.max(12, t.fontSize * 0.7); // 长内容字号缩小
+      } else if (t.content.length > 10) {
+        currentFontSize = Math.max(14, t.fontSize * 0.85);
+      }
+
+      // 1. 如果已有缓存位置，且不是新发布的，优先使用
+      if (newCachedPositions.has(t.id) && !isRecentlyPublished) {
         const pos = newCachedPositions.get(t.id)!;
-        // 简单更新 collision rect 用于后续碰撞检测（虽然不完美，但能保证稳定性）
-        const widthPx = measureTextWidth(t.content, t.fontSize) * 1.1 + 40; 
-        const heightPx = t.fontSize * 2.0; 
+        const widthPx = measureTextWidth(t.content, currentFontSize) * 1.8 + 120; 
+        const heightPx = currentFontSize * 5.5; 
         const widthPct = (widthPx / containerW) * 100;
         const heightPct = (heightPx / containerH) * 100;
         placedItems.push({ x: pos.x, y: pos.y, width: widthPct, height: heightPct });
-        return { ...t, x: pos.x, y: pos.y };
+        return { ...t, x: pos.x, y: pos.y, displayFontSize: currentFontSize };
       }
 
-      // 预估真实尺寸 (px)
-      const widthPx = measureTextWidth(t.content, t.fontSize) * 1.1 + 40; 
-      const heightPx = t.fontSize * 2.0; 
-
+      // 2. 计算新位置
+      const widthPx = measureTextWidth(t.content, currentFontSize) * 1.8 + 120; 
+      const heightPx = currentFontSize * 5.5; 
       const widthPct = (widthPx / containerW) * 100;
       const heightPct = (heightPx / containerH) * 100;
 
-      // 采用向心分布策略：大部分思绪集中在中心，小部分散落在边缘
-      // 范围缩小到 -20% 到 120%，保证不会太空
       const generatePosition = () => {
-        // 使用正态分布思想，让位置更趋向中心 (50, 50)
-        const bias = 0.3; // 集中度
-        const xBase = 50 + (Math.random() - 0.5) * 140; // 基础范围
-        const yBase = 50 + (Math.random() - 0.5) * 140;
+        if (isRecentlyPublished) {
+          // 新发布的思绪强制在中心小范围内
+          return {
+            x: 50 + (Math.random() - 0.5) * 5 - (widthPct / 2),
+            y: 45 + (Math.random() - 0.5) * 5 - (heightPct / 2)
+          };
+        }
         
-        // 向中心拉拢
-        const x = xBase * (1 - bias) + 50 * bias - (widthPct / 2);
-        const y = yBase * (1 - bias) + 50 * bias - (heightPct / 2);
-        return { x, y };
+        // 螺旋搜索：从中心向外扩散寻找第一个不碰撞的位置
+        const maxRings = 100;
+        const pointsPerRing = 16;
+        const spiralStep = 5; // 步长
+
+        for (let ring = 0; ring < maxRings; ring++) {
+          const radius = ring * spiralStep;
+          const startAngle = (ring * 0.5); // 增加旋转偏移，使分布更自然
+          
+          for (let p = 0; p < pointsPerRing; p++) {
+            const angle = startAngle + (p / pointsPerRing) * Math.PI * 2;
+            const xBase = 50 + Math.cos(angle) * radius;
+            const yBase = 45 + Math.sin(angle) * radius;
+            
+            const x = xBase - (widthPct / 2);
+            const y = yBase - (heightPct / 2);
+
+            if (x < -25 || x > 125 || y < -25 || y > 125) continue;
+
+            const currentRect = { x, y, width: widthPct, height: heightPct };
+            // 增加碰撞检测间距 padding 到 12.0%
+            const hasCollision = placedItems.some(item => checkCollision(currentRect, item, 12.0));
+
+            if (!hasCollision) return { x, y };
+          }
+        }
+        
+        // 保底逻辑
+        return {
+          x: 50 + (Math.random() - 0.5) * 120 - (widthPct / 2),
+          y: 45 + (Math.random() - 0.5) * 120 - (heightPct / 2)
+        };
       };
 
-      let { x, y } = generatePosition();
-      let attempts = 0;
-      const maxAttempts = 150;
-
-      while (attempts < maxAttempts) {
-        const currentRect = { x, y, width: widthPct, height: heightPct };
-        // 适当减小 padding (2%) 增加密度
-        const hasCollision = placedItems.some(item => checkCollision(currentRect, item, 2));
-
-        if (!hasCollision) break;
-
-        // 碰撞后重新生成，但依然保持向心倾向
-        const nextPos = generatePosition();
-        x = nextPos.x;
-        y = nextPos.y;
-        attempts++;
-      }
-
-      const finalRect = { x, y, width: widthPct, height: heightPct };
-      placedItems.push(finalRect);
-      newCachedPositions.set(t.id, { x, y });
-      hasNewPositions = true;
+      const { x, y } = generatePosition();
+      placedItems.push({ x, y, width: widthPct, height: heightPct });
       
-      return { ...t, x, y };
+      if (!newCachedPositions.has(t.id) || isRecentlyPublished) {
+        newCachedPositions.set(t.id, { x, y });
+        hasNewPositions = true;
+      }
+      
+      return { ...t, x, y, displayFontSize: currentFontSize };
     });
 
-    // 如果有新计算的位置，异步更新缓存（避免 render loop）
     if (hasNewPositions) {
       setTimeout(() => setCachedPositions(newCachedPositions), 0);
     }
 
     return result;
-  }, [thoughts, maxItems, refreshKey, containerSize, cachedPositions]);
+  }, [thoughts.map(t => t.id).join(','), maxItems, refreshKey, containerSize, cachedPositions]);
 
   // 2. 滚轮缩放处理
   const handleWheel = (e: React.WheelEvent) => {
@@ -255,6 +304,10 @@ const ThoughtCloud: React.FC<ThoughtCloudProps> = ({ thoughts, onThoughtClick, m
       window.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isDragging, handleMouseMove, handleMouseUp]);
+
+  useEffect(() => {
+    setCachedPositions(new Map());
+  }, [refreshKey]);
 
   return (
     <div 
