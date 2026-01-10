@@ -1,8 +1,17 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { Thought, ThoughtType } from "../types";
+import { supabase } from './supabaseService';
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+
+const incrementAiStats = async () => {
+  try {
+    await supabase.rpc('increment_ai_calls_count');
+  } catch (error) {
+    console.error('Failed to increment AI stats:', error);
+  }
+};
 
 export const geminiService = {
   /**
@@ -10,6 +19,7 @@ export const geminiService = {
    */
   async generateMockThoughts(): Promise<Partial<Thought>[]> {
     try {
+      await incrementAiStats();
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: 'Generate 10 short, poetic or witty Chinese sentences that are either a "grumble" (牢骚) or an "insight" (心得). Maximum 20 characters per sentence.',
@@ -41,6 +51,7 @@ export const geminiService = {
    */
   async classifyThought(content: string): Promise<ThoughtType> {
     try {
+      await incrementAiStats();
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: `Classify the following text into "GRUMBLE" (complaint, venting), "INSIGHT" (learning, realization), or "WHISPER" (neutral, random thought). Text: "${content}"`,
@@ -70,11 +81,19 @@ export const geminiService = {
    */
   async refineThought(input: string): Promise<string> {
     try {
+      await incrementAiStats();
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: `Refine this Chinese grumble or insight into a more concise, evocative version (max 15 chars): "${input}"`,
+        contents: `你是一个精通文学的润色助手。请将下面这段话润色得更简练、更有意境或更具诗意。
+要求：
+1. 直接输出润色后的文本，禁止包含任何解析、风格选项、序号或解释性文字。
+2. 字数控制在 15 字以内。
+3. 保持原意但提升文采。
+
+待润色内容： "${input}"`,
       });
-      return response.text.trim();
+      // 进一步确保清理掉可能的 Markdown 格式或多余换行
+      return response.text.replace(/[*#>`-]/g, '').trim().split('\n')[0];
     } catch (error) {
       return input;
     }

@@ -1,6 +1,7 @@
 
 import React, { useMemo, useCallback, useState, useRef, useEffect } from 'react';
 import { Thought } from '../types';
+import { Sparkles } from 'lucide-react';
 
 interface ThoughtCloudProps {
   thoughts: Thought[];
@@ -33,7 +34,8 @@ const ThoughtItem: React.FC<{
   thought: Thought;
   onClick: (thought: Thought) => void;
   position: { x: number; y: number };
-}> = React.memo(({ thought, onClick, position }) => {
+  isNew?: boolean;
+}> = React.memo(({ thought, onClick, position, isNew }) => {
   const handleClick = useCallback(() => {
     onClick(thought);
   }, [thought, onClick]);
@@ -41,18 +43,25 @@ const ThoughtItem: React.FC<{
   return (
     <div
       key={thought.id}
-      className={`absolute cursor-pointer select-none transition-all duration-700 hover:scale-110 active:scale-95 animate-float ${thought.color} whitespace-nowrap`}
+      className={`absolute cursor-pointer select-none transition-all duration-700 hover:scale-110 active:scale-95 animate-float ${thought.color} whitespace-nowrap ${isNew ? 'z-10' : 'z-0'}`}
       style={{
         left: `${position.x}%`,
         top: `${position.y}%`,
-        fontSize: `${thought.fontSize}px`,
-        opacity: 0.8,
+        fontSize: isNew ? `${thought.fontSize + 4}px` : `${thought.fontSize}px`,
+        opacity: isNew ? 1 : 0.8,
         animationDelay: `${(thought.timestamp % 5000) / 1000}s`,
-        filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.05))',
+        filter: isNew 
+          ? 'drop-shadow(0 0 12px rgba(99, 102, 241, 0.4))' 
+          : 'drop-shadow(0 2px 4px rgba(0,0,0,0.05))',
+        fontWeight: isNew ? 'bold' : 'normal',
       }}
       onClick={handleClick}
     >
-      {thought.content}
+      <div className="flex items-center gap-1">
+        {isNew && <Sparkles size={16} className="text-amber-400 animate-pulse" />}
+        {thought.content}
+        {isNew && <span className="absolute -top-4 -right-2 bg-indigo-600 text-white text-[10px] px-1.5 py-0.5 rounded-full scale-75 animate-bounce">NEW</span>}
+      </div>
     </div>
   );
 });
@@ -82,6 +91,9 @@ const ThoughtCloud: React.FC<ThoughtCloudProps> = ({ thoughts, onThoughtClick, m
   }, []);
 
   // 1. 随机抽样与位置重计算（避免重叠）
+  // 引入位置缓存，避免每次渲染都重新计算
+  const [cachedPositions, setCachedPositions] = useState<Map<string, {x: number, y: number}>>(new Map());
+
   const displayedThoughts = useMemo(() => {
     // 按照内容占据的预估面积从大到小排序，优先放置大词条
     const sampled = (thoughts.length <= maxItems ? [...thoughts] : 
@@ -94,8 +106,22 @@ const ThoughtCloud: React.FC<ThoughtCloudProps> = ({ thoughts, onThoughtClick, m
 
     const placedItems: any[] = [];
     const { width: containerW, height: containerH } = containerSize;
+    const newCachedPositions = new Map(cachedPositions);
+    let hasNewPositions = false;
 
-    return sampled.map((t) => {
+    const result = sampled.map((t) => {
+      // 如果已有缓存位置，优先使用
+      if (newCachedPositions.has(t.id)) {
+        const pos = newCachedPositions.get(t.id)!;
+        // 简单更新 collision rect 用于后续碰撞检测（虽然不完美，但能保证稳定性）
+        const widthPx = measureTextWidth(t.content, t.fontSize) * 1.1 + 40; 
+        const heightPx = t.fontSize * 2.0; 
+        const widthPct = (widthPx / containerW) * 100;
+        const heightPct = (heightPx / containerH) * 100;
+        placedItems.push({ x: pos.x, y: pos.y, width: widthPct, height: heightPct });
+        return { ...t, x: pos.x, y: pos.y };
+      }
+
       // 预估真实尺寸 (px)
       const widthPx = measureTextWidth(t.content, t.fontSize) * 1.1 + 40; 
       const heightPx = t.fontSize * 2.0; 
@@ -137,9 +163,19 @@ const ThoughtCloud: React.FC<ThoughtCloudProps> = ({ thoughts, onThoughtClick, m
 
       const finalRect = { x, y, width: widthPct, height: heightPct };
       placedItems.push(finalRect);
+      newCachedPositions.set(t.id, { x, y });
+      hasNewPositions = true;
+      
       return { ...t, x, y };
     });
-  }, [thoughts, maxItems, refreshKey, containerSize]);
+
+    // 如果有新计算的位置，异步更新缓存（避免 render loop）
+    if (hasNewPositions) {
+      setTimeout(() => setCachedPositions(newCachedPositions), 0);
+    }
+
+    return result;
+  }, [thoughts, maxItems, refreshKey, containerSize, cachedPositions]);
 
   // 2. 滚轮缩放处理
   const handleWheel = (e: React.WheelEvent) => {
@@ -244,6 +280,7 @@ const ThoughtCloud: React.FC<ThoughtCloudProps> = ({ thoughts, onThoughtClick, m
             thought={thought} 
             position={{ x: thought.x, y: thought.y }}
             onClick={onThoughtClick}
+            isNew={Date.now() - thought.timestamp < 30000} // 30秒内发布的视为新发布
           />
         ))}
       </div>

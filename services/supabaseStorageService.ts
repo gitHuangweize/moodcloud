@@ -324,5 +324,21 @@ export const supabaseStorageService = {
       console.error('Error marking all notifications as read:', error);
       throw error;
     }
+  },
+
+  // Stats
+  async getDailyStats(limit: number = 7): Promise<any[]> {
+    const { data, error } = await supabase
+      .from('daily_stats')
+      .select('*')
+      .order('date', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.error('Error fetching daily stats:', error);
+      throw error;
+    }
+
+    return data || [];
   }
 };

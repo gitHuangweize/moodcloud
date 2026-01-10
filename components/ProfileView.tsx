@@ -30,7 +30,10 @@ const ProfileView: React.FC<ProfileViewProps> = ({
   const [likedThoughts, setLikedThoughts] = useState<Thought[]>([]);
   const [isLoadingLikes, setIsLoadingLikes] = useState(false);
 
-  const userThoughts = useMemo(() => thoughts.filter(t => t.authorId === user.id), [thoughts, user.id]);
+  const userThoughts = useMemo(() => {
+    if (!Array.isArray(thoughts)) return [];
+    return thoughts.filter(t => t.authorId === user.id);
+  }, [thoughts, user.id]);
   
   const totalReceivedLikes = useMemo(() => {
     return userThoughts.reduce((sum, t) => sum + (t.likes || 0), 0);
@@ -43,7 +46,7 @@ const ProfileView: React.FC<ProfileViewProps> = ({
         try {
           const likedIds = await supabaseStorageService.getLikedThoughtIds(user.id);
           // 这里我们从全局 thoughts 中筛选，如果以后数据量大，可能需要单独请求后端
-          const filtered = thoughts.filter(t => likedIds.includes(t.id));
+          const filtered = Array.isArray(thoughts) ? thoughts.filter(t => likedIds.includes(t.id)) : [];
           setLikedThoughts(filtered);
         } catch (err) {
           console.error("Failed to load liked thoughts:", err);

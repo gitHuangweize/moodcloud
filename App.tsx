@@ -5,6 +5,7 @@ import ThoughtCloud from './components/ThoughtCloud';
 import InputBar from './components/InputBar';
 import AuthModal from './components/AuthModal';
 import ProfileView from './components/ProfileView';
+import StatsView from './components/StatsView';
 import StatusMessage from './components/StatusMessage';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { Thought, ThoughtType, User, Comment, AppNotification } from './types';
@@ -32,6 +33,7 @@ const App: React.FC = () => {
   const [isLoadingComments, setIsLoadingComments] = useState(false);
   const [newCommentText, setNewCommentText] = useState('');
   const [isRefining, setIsRefining] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
   const [isEditingThought, setIsEditingThought] = useState(false);
   const [editingThoughtContent, setEditingThoughtContent] = useState('');
   const [likedThoughtIds, setLikedThoughtIds] = useState<Set<string>>(new Set());
@@ -46,6 +48,7 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showProfile, setShowProfile] = useState(false);
+  const [showStats, setShowStats] = useState(false);
   const [profileUser, setProfileUser] = useState<User | null>(null);
 
   // Toast Helper
@@ -316,6 +319,8 @@ const App: React.FC = () => {
       return;
     }
 
+    setIsPublishing(true); // 使用局部发布状态，而不是全局 Loading
+    setIsLoading(false); // 确保全局 Loading 关闭
     // AI Classification
     let thoughtType = ThoughtType.WHISPER;
     try {
@@ -337,9 +342,9 @@ const App: React.FC = () => {
       timestamp: Date.now(),
       likes: 0,
       echoes: 0,
-      x: Math.random() * 80 + 5,
-      y: Math.random() * 70 + 10,
-      fontSize: 22,
+      x: 45 + Math.random() * 10, // 初始位置更靠近中心
+      y: 45 + Math.random() * 10,
+      fontSize: 26, // 新发布的稍微大一点
       color: COLORS[Math.floor(Math.random() * COLORS.length)],
       tags
     };
@@ -351,21 +356,24 @@ const App: React.FC = () => {
     } catch (err: any) {
       console.error("Post thought failed:", err);
       addToast("发布失败：" + (err.message || "未知错误"), 'error');
+    } finally {
+      setIsPublishing(false); // 结束发布状态
     }
   };
 
-  const handleRefine = async (content: string) => {
-    if (!content.trim()) return;
+  const handleRefine = async (content: string): Promise<string | null> => {
+    if (!content.trim()) return null;
     if (!currentUser) {
       setShowAuthModal(true);
-      return;
+      return null;
     }
     setIsRefining(true);
     try {
       const refined = await geminiService.refineThought(content);
-      handlePostThought(refined);
+      return refined;
     } catch (err) {
       addToast("AI 润色失败，请重试", 'error');
+      return null;
     } finally {
       setIsRefining(false);
     }
@@ -646,6 +654,7 @@ const App: React.FC = () => {
         }}
         unreadNotifications={unreadCount}
         onNotificationsClick={() => setShowNotifications(!showNotifications)}
+        onStatsClick={() => setShowStats(true)}
       />
 
       {/* Notifications Modal/Dropdown */}
@@ -695,6 +704,22 @@ const App: React.FC = () => {
         </div>
       )}
       
+      {/* Publishing Overlay - Special loading state for publishing */}
+      {isPublishing && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-white/60 backdrop-blur-md animate-in fade-in duration-300">
+          <div className="flex flex-col items-center gap-4">
+            <div className="relative">
+              <div className="w-16 h-16 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+              <CloudOff size={24} className="absolute inset-0 m-auto text-indigo-600 animate-pulse" />
+            </div>
+            <div className="flex flex-col items-center">
+              <h3 className="text-xl font-bold text-slate-800">发布中...</h3>
+              <p className="text-slate-500 text-sm">正在将你的思绪寄往云端</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="pt-16 pb-32 h-full flex flex-col justify-center">
         {isLoading ? (
           <div className="flex flex-col items-center justify-center space-y-4">
@@ -731,11 +756,17 @@ const App: React.FC = () => {
         onSubmit={handlePostThought} 
         onRefine={handleRefine}
         isRefining={isRefining}
+        isPublishing={isPublishing}
       />
 
       {/* Thought Detail & Comments Modal */}
       {selectedThought && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm transition-opacity">
+        <div 
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm transition-opacity"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedThought(null);
+          }}
+        >
           <div className="bg-white rounded-[2.5rem] w-full max-w-xl max-h-[90vh] flex flex-col shadow-2xl relative animate-in fade-in zoom-in duration-300 overflow-hidden">
             <button 
               onClick={() => setSelectedThought(null)}
@@ -904,15 +935,29 @@ const App: React.FC = () => {
       {/* Profile Page */}
       {showProfile && profileUser && (
         <ProfileView 
-          user={profileUser}
+          user={profileUser} 
           currentUser={currentUser}
           thoughts={thoughts}
-          onClose={() => { setShowProfile(false); setProfileUser(null); }}
+          isCurrentUser={currentUser?.id === profileUser.id}
+          onClose={() => setShowProfile(false)} 
           onLogout={handleLogout}
-          onSelectThought={openThoughtFromProfile}
-          onDeleteThoughts={deleteThoughtsFromProfile}
-          onFilterAuthor={handleAuthorClick}
+          onSelectThought={setSelectedThought}
+          onDeleteThoughts={async (ids) => {
+            try {
+              for (const id of ids) {
+                await supabaseStorageService.deleteThought(id);
+              }
+              setThoughts(prev => prev.filter(t => !ids.includes(t.id)));
+              addToast("删除成功", 'success');
+            } catch (err) {
+              addToast("删除失败", 'error');
+            }
+          }}
         />
+      )}
+
+      {showStats && (
+        <StatsView onClose={() => setShowStats(false)} />
       )}
 
       {/* Decorative gradients */}

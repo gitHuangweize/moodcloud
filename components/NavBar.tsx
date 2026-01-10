@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { User as UserIcon, Cloud, Info, LogIn, RefreshCw, Search, X, Filter, Bell } from 'lucide-react';
+import { User as UserIcon, Cloud, Info, LogIn, RefreshCw, Search, X, Filter, Bell, BarChart3 } from 'lucide-react';
 import { User, ThoughtType } from '../types';
 
 interface NavBarProps {
@@ -15,6 +15,7 @@ interface NavBarProps {
   onClearAuthorFilter: () => void;
   unreadNotifications?: number;
   onNotificationsClick?: () => void;
+  onStatsClick?: () => void;
 }
 
 const NavBar: React.FC<NavBarProps> = ({ 
@@ -28,7 +29,8 @@ const NavBar: React.FC<NavBarProps> = ({
   filterAuthorName,
   onClearAuthorFilter,
   unreadNotifications = 0,
-  onNotificationsClick
+  onNotificationsClick,
+  onStatsClick
 }) => {
   return (
     <nav className="fixed top-0 left-0 right-0 h-16 flex items-center justify-between px-8 z-50 bg-white/10 backdrop-blur-md border-b border-white/20 select-none">
@@ -100,6 +102,14 @@ const NavBar: React.FC<NavBarProps> = ({
           </button>
         )}
         
+        <button 
+          onClick={onStatsClick}
+          className="hidden md:flex text-slate-500 hover:text-indigo-600 transition-colors items-center gap-1 text-sm font-medium"
+        >
+          <BarChart3 size={18} />
+          <span>统计</span>
+        </button>
+
         <button className="hidden md:flex text-slate-500 hover:text-indigo-600 transition-colors items-center gap-1 text-sm font-medium">
           <Info size={18} />
           <span>关于</span>
