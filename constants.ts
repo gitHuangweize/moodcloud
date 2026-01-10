@@ -1,16 +1,18 @@
 
 import { Thought, ThoughtType } from './types';
 
+export const TYPE_COLORS: Record<ThoughtType, string[]> = {
+  [ThoughtType.GRUMBLE]: ['text-slate-500', 'text-blue-500', 'text-cyan-600'],
+  [ThoughtType.INSIGHT]: ['text-amber-500', 'text-orange-500', 'text-yellow-600'],
+  [ThoughtType.WHISPER]: ['text-indigo-400', 'text-purple-400', 'text-rose-400', 'text-pink-400']
+};
+
 export const COLORS = [
-  'text-indigo-400',
-  'text-purple-400',
-  'text-violet-500',
-  'text-fuchsia-400',
-  'text-pink-400',
-  'text-rose-400',
-  'text-slate-500',
-  'text-blue-400'
+  ...TYPE_COLORS[ThoughtType.GRUMBLE],
+  ...TYPE_COLORS[ThoughtType.INSIGHT],
+  ...TYPE_COLORS[ThoughtType.WHISPER]
 ];
+
 
 export const INITIAL_THOUGHTS: Thought[] = [
   {

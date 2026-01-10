@@ -9,7 +9,7 @@ import StatsView from './components/StatsView';
 import StatusMessage from './components/StatusMessage';
 import { ToastContainer, ToastMessage, ToastType } from './components/Toast';
 import { Thought, ThoughtType, User, Comment, AppNotification } from './types';
-import { INITIAL_THOUGHTS, COLORS } from './constants';
+import { INITIAL_THOUGHTS, COLORS, TYPE_COLORS } from './constants';
 import { geminiService } from './services/geminiService';
 import { supabaseStorageService } from './services/supabaseStorageService';
 import { supabase } from './services/supabaseService';
@@ -334,6 +334,9 @@ const App: React.FC = () => {
     const matches = content.match(tagRegex);
     const tags = matches ? Array.from(new Set(matches.map(m => m.substring(1)))) : [];
 
+    const typeColors = TYPE_COLORS[thoughtType] || TYPE_COLORS[ThoughtType.WHISPER];
+    const color = typeColors[Math.floor(Math.random() * typeColors.length)];
+
     const newThought: Omit<Thought, 'id'> = {
       content,
       type: thoughtType,
@@ -345,7 +348,7 @@ const App: React.FC = () => {
       x: 45 + Math.random() * 10, // 初始位置更靠近中心
       y: 45 + Math.random() * 10,
       fontSize: 26, // 新发布的稍微大一点
-      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      color,
       tags
     };
 
